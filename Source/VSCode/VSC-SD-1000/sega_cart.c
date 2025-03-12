@@ -114,12 +114,12 @@ unsigned int file_start_idx = 0, file_end_idx = 0;
  go away at that point. Sega polls 50001 until it reads $1.
 */
 // Memory locations for communication
-#define CMD_ADDR        50000
-#define PARAM_ADDR      50001
-#define FILELIST_ADDR   50002
-#define FILETYPE_ADDR   51000
-#define FILEPAGE_START  51030
-#define ACK_ADDR        49999
+#define CMD_ADDR        30000
+#define PARAM_ADDR      30001
+#define FILELIST_ADDR   30002
+#define FILETYPE_ADDR   31000
+#define FILEPAGE_START  31030
+#define ACK_ADDR        29999
 
 void __not_in_flash_func(core1_main()) {
     multicore_lockout_victim_init();
@@ -328,7 +328,7 @@ void update_file_list() {
         char display_name[32] = {0};
 
         if (entry->isDir) {
-            strcpy(display_name, "DIR>");
+            strcpy(display_name, "DIR> ");
             strcat(display_name, entry->long_filename);
             ROM[FILETYPE_ADDR + n] = 1;
         } else {

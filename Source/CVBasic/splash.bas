@@ -66,7 +66,7 @@ inizio:
    BORDER 4
    
    'poke 16128,1 ' read dir
-   poke 50000,1 ' read dir
+   poke 30000,1 ' read dir
    DEFINE CHAR 128,8,riga
    DEFINE COLOR 128,8,riga_color
    
@@ -93,11 +93,11 @@ newdir:
   	FOR c = 3 TO 22
       for i = 1 to 30
 	  vpoke $1800+32*c,129
-		vpoke $1800+32*c+i, peek(50002+((c-3)*32)+i-1)
+		vpoke $1800+32*c+i, peek(30002+((c-3)*32)+i-1)
 	  next i 
-	  if peek(50002+(32*(c-3)))>0 then totfile=totfile+1
+	  if peek(30002+(32*(c-3)))>0 then totfile=totfile+1
 	  vpoke $1800+32*c+31,129
-	  if peek(51000+(c-3))=1 then 
+	  if peek(31000+(c-3))=1 then 
 	  end if
 	  WAIT
 	NEXT c
@@ -158,41 +158,41 @@ newdir:
    goto scegli
     
 nextpage:
-   poke 49999,0 ' wait for goto
-   poke 50000,3 ' next page
+   poke 29999,0 ' wait for goto
+   poke 30000,3 ' next page
    print at 32*23,"--> Next DIR"
-   while peek(49999)<>1:wend
+   while peek(29999)<>1:wend
  
    goto newdir
    
 prevpage:
-   poke 49999,0 ' wait for goto
-   poke 50000,4 ' next page
+   poke 29999,0 ' wait for goto
+   poke 30000,4 ' next page
    print at 32*23,"--> Prev DIR"
-   while peek(49999)<>1:wend
+   while peek(29999)<>1:wend
    goto newdir
   
 updir:
-   poke 49999,0 ' wait for goto
-   poke 50000,5 ' up Dir
+   poke 29999,0 ' wait for goto
+   poke 30000,5 ' up Dir
    print at 32*23,"--> Up DIR"
-   while peek(49999)<>1:wend
+   while peek(29999)<>1:wend
    goto newdir
 
 rungame:  
   CLS  
-  poke 50001,numfile ' file to run
-  poke 50000,2 ' run file
-  if peek(51000+numfile-1)=1 then  ' is opendir
+  poke 30001,numfile ' file to run
+  poke 30000,2 ' run file
+  if peek(31000+numfile-1)=1 then  ' is opendir
   print at 32*23,"--> Open DIR"
-  while peek(49999)<>1:wend
+  while peek(29999)<>1:wend
   goto newdir
   end IF
   ' else is run game
   
   print at 32*4,"Loading ROM:"
   for i=0 to 255
-	vpoke $1800+32*5+i, peek(50002+i)
+	vpoke $1800+32*5+i, peek(30002+i)
   next i
   for i=1 to 32
   border i

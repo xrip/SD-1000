@@ -21,24 +21,50 @@
 	;                             Shorter mode setting subroutines.
 	; Revision date: Apr/26/2024. Interruption handler saves current bank.
 	; Revision date: Apr/27/2024. Music player now supports bank switching.
+	; Revision date: May/17/2024. Added delay for SG1000 and SC3000 controller
+	;                             support with keyboard (code by SiRioKD)
+	; Revision date: Jun/04/2024. SGM supported deleted NTSC flag.
+	; Revision date: Jun/07/2024. Keys 0-9, = and - emulate keypad in MSX.
+	; Revision date: Jun/17/2024. Added SVI-328 support.
+	; Revision date: Aug/01/2024. Added Sord M5 support.
+	; Revision date: Aug/02/2024. PSG label now defined by CVBasic. Added Memotech
+	;                             support.
+	; Revision date: Aug/08/2024. Added Soundic/Hanimex Pencil II support.
+	; Revision date: Aug/15/2024. Added support for Tatung Einstein. Added support
+	;                             for Casio PV-2000.
+	; Revision date: Aug/21/2024. Added keypad support for Memotech, Tatung Einstein,
+	;                             and Casio PV-2000.
+	; Revision date: Aug/30/2024. Changed mode bit to bit 3 (avoids collision
+	;                             with flicker flag).
+	; Revision date: Oct/15/2024. Added LDIRMV. Solved bug where asterisk and number
+	;                             keys values were inverted.
 	;
 
-VDP:    equ $98+$26*COLECO+$26*SG1000
 JOYSEL:	equ $c0
 KEYSEL:	equ $80
 
-PSG:    equ $ff-$80*SG1000
 JOY1:   equ $fc-$20*SG1000
 JOY2:   equ $ff-$22*SG1000
 
-;BASE_RAM: equ $e000-$7000*COLECO-$2000*SG1000+$0c00*SGM
-BASE_RAM: equ $e000-$7000*COLECO-$5000*SG1000+$0c00*SGM
-
-;STACK:	equ $f000-$7c00*COLECO-$2c00*SG1000+$0c00*SGM
-STACK:	equ $f000-$7c00*COLECO-$5c00*SG1000+$0c00*SGM
-
     if COLECO
 	org $8000
+      if PENCIL
+        db "COPYRIGHT SOUNDIC"
+	jp START
+	jp nmi_handler
+	jp 0	; rst $08
+	jp 0	; rst $10
+	jp 0	; rst $18
+	jp 0	; rst $20
+	jp 0	; rst $28
+	jp 0	; rst $30
+	jp 0	; rst $38
+	dw $0000
+	dw $0000
+	dw $0000
+	dw $0000
+	db "CVBASIC!POWERED BY!2024!"
+      else
 	db $55,$aa
 	dw 0
 	dw 0
@@ -55,13 +81,14 @@ STACK:	equ $f000-$7c00*COLECO-$5c00*SG1000+$0c00*SGM
 	jp 0	; rst $38
 
 	jp nmi_handler
+      endif
     endif
-    if SG1000
+    if SG1000+SVI
 	org $0000
 	di
-	im 1
+	ld sp,STACK
 	jp START
-	db $ff,$ff
+	db $ff
 	jp 0
 	db $ff,$ff,$ff,$ff,$ff
 	jp 0
@@ -84,8 +111,217 @@ STACK:	equ $f000-$7c00*COLECO-$5c00*SG1000+$0c00*SGM
 	dw $0000
 	dw $0000
 	dw $0000
+
+WRTPSG:	equ $0093
+RDPSG:	equ $0096
+
+    endif
+    if SORD
+	ORG $2000
+	db $02		; Avoid checking $4000
+	dw START	; Start address.
+	dw $002e	; Prestart address (just point to RET in BIOS).
+    endif
+    if PV2000
+	ORG $C000
+	jp START
     endif
 
+    if MEMOTECH
+      if CPM
+	org $0100
+      else
+	org $40fc
+	dw rom_start
+	dw rom_end-rom_start
+      endif
+rom_start:
+	jp START
+	db 0,0,0,0,0
+	dw nmi_handler
+	dw null_vector
+	dw null_vector
+	dw rom_start
+
+null_vector:
+	ei
+	reti
+    endif
+    if EINSTEIN
+	org $0100
+rom_start:
+	jp START
+	db 0,0,0,0,0
+	dw $0000
+	dw $0000
+	dw $0000
+	dw $0000
+    endif
+    if NABU
+      if CPM
+	org $0100
+      else
+	org $140d
+      endif
+	nop
+	nop
+	nop
+	jp START
+        times $100-($&255) db $ff
+nabu_int:
+	dw null_vector
+	dw null_vector
+	dw keyboard_handler
+	dw nmi_handler
+	dw null_vector
+	dw null_vector
+	dw null_vector
+	dw null_vector
+
+null_vector:
+	ei
+	reti
+    endif
+
+    if SVI
+WRTPSG:	
+	out ($88),a
+	push af
+	ld a,e
+	out ($8c),a
+	pop af
+	ret
+
+RDPSG:
+	out ($88),a
+	push af
+	pop af
+	in a,($90)
+	ret
+    endif
+
+    if EINSTEIN
+WRTPSG:	
+	out ($02),a
+	push af
+	ld a,e
+	out ($03),a
+	pop af
+	ret
+
+RDPSG:
+	out ($02),a
+	push af
+	pop af
+	in a,($02)
+	ret
+    endif
+
+    if NABU
+WRTPSG:	
+	out ($41),a
+	push af
+	ld a,e
+	out ($40),a
+	pop af
+	ret
+
+RDPSG:
+	out ($41),a
+	push af
+	pop af
+	in a,($40)
+	ret
+    endif
+
+    if PV2000
+WRTVDP:
+	ld a,b
+	ld (VDP+1),a
+	ld a,c
+	or $80
+	ld (VDP+1),a
+	ret
+
+SETWRT:
+	ld a,l
+	ld (VDP+1),a
+	ld a,h
+	or $40
+	ld (VDP+1),a
+	ret
+
+SETRD:
+	ld a,l
+	ld (VDP+1),a
+	ld a,h
+        and $3f
+	ld (VDP+1),a
+	ret
+
+WRTVRM:
+	push af
+	call SETWRT
+	pop af
+	ld (VDP),a
+	ret
+
+RDVRM:
+        push af
+        call SETRD
+        pop af
+        ex (sp),hl
+        ex (sp),hl
+        ld a,(VDP)
+        ret
+
+FILVRM:
+	push af
+	call SETWRT
+	pop af
+	dec bc		; T-states (normal / M1)
+.1:	ld (VDP),a	; 13 14
+	dec bc		;  6  7
+	bit 7,b		;  8 10
+	jp z,.1		; 10 11
+			; -- --
+			; 37 42
+	ret
+
+LDIRMV:
+	ex de,hl
+	call SETRD
+	ex (sp),hl
+	ex (sp),hl
+.1:
+	ld a,(VDP)
+	ld (de),a
+	inc de
+	dec bc
+	ld a,b
+	or c
+	jp nz,.1
+	ret
+
+LDIRVM:
+        EX DE,HL
+        CALL SETWRT
+        EX DE,HL
+        DEC BC
+        INC C
+        LD A,B
+        LD B,C
+        INC A
+	LD C,A
+.1:
+	LD A,(HL)	;  7  8
+	LD (VDP),A	; 13 14
+	INC HL		;  6  7
+	DJNZ .1		; 13 14
+        DEC C		;  4  5
+        JP NZ,.1	; 10 11
+        RET
+    else
 WRTVDP:
 	ld a,b
 	out (VDP+1),a
@@ -131,41 +367,68 @@ RDVRM:
         pop af
         ex (sp),hl
         ex (sp),hl
-        in a,(VDP)
+        in a,(VDPR)
         ret
 
 FILVRM:
 	push af
 	call SETWRT
-.1:	pop af
-	out (VDP),a
-	push af
+	pop af
+	dec bc		; T-states (normal / M1)
+.1:	out (VDP),a	; 11 12
+	dec bc		;  6  7
+	bit 7,b		;  8 10
+	jp z,.1		; 10 11
+			; -- --
+			; 35 40
+	ret
+
+LDIRMV:
+	ex de,hl
+	call SETRD
+	ex (sp),hl
+	ex (sp),hl
+.1:
+	in a,(VDP)
+	ld (de),a
+    if SORD
+	nop	
+    endif
+    if SG1000+MEMOTECH+EINSTEIN
+	nop	; SG1000 is 3.58 mhz, but SC3000 is 4 mhz.
+	nop
+    endif
+	inc de
 	dec bc
 	ld a,b
 	or c
 	jp nz,.1
-	pop af
 	ret
 
 LDIRVM:
-        EX DE,HL
-        CALL SETWRT
-        EX DE,HL
-        DEC BC
-        INC C
-        LD A,B
-        LD B,C
-        INC A
-        LD C,VDP
+        ex de,hl
+        call SETWRT
+        ex de,hl
+        dec bc
+        inc c
+        ld a,b
+        ld b,c
+        inc a
+        ld c,VDP
 .1:
-    if SG1000
-	NOP	; SG1000 is faster (reported by SiRioKD)
+    if SORD
+	nop	
     endif
-	OUTI
-        JP NZ,.1
-        DEC A
-        JP NZ,.1
-        RET
+    if SG1000+MEMOTECH+EINSTEIN
+	nop	; SG1000 is 3.58 mhz, but SC3000 is 4 mhz.
+	nop
+    endif
+	outi
+        jp nz,.1
+        dec a
+        jp nz,.1
+        ret
+    endif
 
 LDIRVM3:
 	call .1
@@ -224,19 +487,19 @@ CPYBLK:
 	jp nmi_on
 	
 nmi_off:
-    if COLECO
+    if COLECO+PV2000
 	push hl
 	ld hl,mode
 	set 0,(hl)
 	pop hl
     endif
-    if SG1000+MSX
+    if SG1000+MSX+SVI+SORD+MEMOTECH+NABU
         di
     endif
 	ret
 
 nmi_on:
-    if COLECO
+    if COLECO+PV2000
 	push af
 	push hl
 	ld hl,mode
@@ -247,113 +510,16 @@ nmi_on:
 	pop hl
 	pop af
     endif
-    if SG1000+MSX
+    if SG1000+MSX+SVI+SORD+MEMOTECH+NABU
         ei
     endif
 	ret
 
     if COLECO
 keypad_table:
-        db $0f,$08,$04,$05,$0c,$07,$0a,$02
-        db $0d,$0b,$00,$09,$03,$01,$06,$0f
+        db $0f,$08,$04,$05,$0c,$07,$0b,$02
+        db $0d,$0a,$00,$09,$03,$01,$06,$0f
     endif
-
-
-
-
-
-    if SG1000
-;--------------------------------------------------------------------
-; SG-1000 / SC-3000  1-player Joystick/Keyboard routines
-;--------------------------------------------------------------------
-; SG-1000 with keyboard and SC-3000 returns data from joystick
-; merged with data from keyboard as Sega standard.
-;
-; Bits
-; Format: |    5    |     4    |      3       |      2      |      1      |     0     |   
-;         | Trig R  |  Trig L  |    Right     |    Left     |    Down     |    Up     |
-;         | Ins/Del | Home/Clr | Cursor Right | Cursor Left | Cursor Down | Cursor Up |
-;
-; INPUT:
-;    HL = INPUT DATA ADDRESS
-;
-; OUTPUT:
-;    A = joy/key bits (0 = pressed, 1 = not pressed)
-;
-;--------------------------------------------------------------------
-SG1000_PPI_PLAYER_1_READ:
-	ld a, 7						; Select Row 7
-	out ($de), a
-
-	in a, ($de)					; Readback the value
-	cp 7						; if keyboard not present => A = $FF
-	jr z, .readKeybAndJoy		; Keyboard present
-
-	in a, (JOY1)				; Read Joystick
-	;or $C0
-	ret
-
-; Keyboard routine
-; This routine read joystick and merge the obtained data with corresponding keyboard keys (Cursors + Home/Clr + Ins/Del) that simulate the joystick .
-; 
-.readKeybAndJoy:
-	
-	in a, ($dc)					; Read Joystick
-	;or $C0
-	ld c, a
-	
-
-	ld a, $04
-	out ($de), a
-	in a, ($dc)
-	bit 5, a					; Key Cursor Down 	=> Joy Down
-	jp nz, .nocursordown
-	res 1, c
-.nocursordown:
-
-	ld a, $05
-	out ($de), a
-	in a, ($dc)
-	bit 5, a					; Key Cursor Left	=> Joy Left
-	jp nz, .nocursorleft
-	res 2, c
-.nocursorleft:
-
-	ld a, $06
-	out ($de), a
-	in a, ($dc)
-	bit 5, a					; Key Cursor Right	=> Joy Right
-	jp nz, .nocursorright
-	res 3, c
-.nocursorright:
-
-	bit 6, a					; Key Cursor Up		=> Joy Up
-	jp nz, .nocursorup
-	res 0, c
-.nocursorup:
-
-	ld a, $02
-	out ($de), a
-	in a, ($dc)
-	bit 4, a					; Key Home/Clr		=> Joy Fire 1 (Trig L)
-	jp nz, .nokeyHomeClr
-	res 4, c
-.nokeyHomeClr:
-
-	ld a, $03
-	out ($de), a
-	in a, ($dc)
-	bit 4, a					; Key Ins/Del		=> Joy Fire 2 (Trig R)
-	jp nz, .nokeyInsDel
-	res 5, c
-.nokeyInsDel:
-	ld a, c
-	ret	
-	
-	
-	endif
-
-
 
 cls:
 	ld hl,$1800
@@ -369,7 +535,7 @@ print_string:
 	ld b,0
 	ld de,(cursor)
 	ld a,d
-	and $03
+	and $07
 	or $18
 	ld d,a
 	push de
@@ -427,7 +593,7 @@ print_digit:
 	ld hl,(cursor)
 	ex af,af'
 	ld a,h
-	and $03
+	and $07
 	or $18
 	ld h,a
 	ex af,af'
@@ -480,7 +646,7 @@ define_char:
 	ex de,hl
 	call nmi_off
 	ld a,(mode)
-	and 4
+	and 8
 	jr nz,.1
 	call LDIRVM3
 	jp nmi_on
@@ -523,6 +689,9 @@ update_sprite:
 	ld de,sprites
 	add a,a
 	add a,a
+    if SORD
+	or $80
+    endif
 	ld e,a
 	ld hl,sprite_data
 	ld bc,4
@@ -546,7 +715,55 @@ _mul16:
 	jp nz,.1
 	ret
 
+	; 16-bit signed modulo.
+	; hl = hl % de
+_mod16s:
+	ld a,h
+	or a
+	push af
+	bit 7,h
+	call nz,_neg16
+	ex de,hl
+	bit 7,h
+	call nz,_neg16
+	ex de,hl
+	call _mod16
+	pop af
+	ret p
+	jp _neg16
+
+	; 16-bit signed division.
+	; hl = hl / de
+_div16s:
+	ld a,h
+	xor d
+	push af
+	bit 7,h
+	call nz,_neg16
+	ex de,hl
+	bit 7,h
+	call nz,_neg16
+	ex de,hl
+	call _div16
+	pop af
+	ret p
+	jp _neg16
+
+_abs16:
+	bit 7,h
+	ret z
+_neg16:
+	ld a,h
+	cpl
+	ld h,a
+	ld a,l
+	cpl
+	ld l,a
+	inc hl
+	ret
+
 	; Fast 16-bit division.
+	; hl = hl / de
 _div16:
 	ld b,h
 	ld c,l
@@ -586,18 +803,6 @@ _mod16:
 	ccf
 	dec a
 	jp nz,.1
-	ret
-
-_abs16:
-	bit 7,h
-	ret z
-	ld a,h
-	cpl
-	ld h,a
-	ld a,l
-	cpl
-	ld l,a
-	inc hl
 	ret
 
 _sgn16:
@@ -645,12 +850,15 @@ random:
         ret
 
 sn76489_freq:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
 	ld b,a
 	ld a,l
 	and $0f
 	or b
 	out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
 	add hl,hl
 	add hl,hl
 	add hl,hl
@@ -658,23 +866,32 @@ sn76489_freq:
 	ld a,h
 	and $3f
 	out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
     endif
 	ret
 
 sn76489_vol:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
 	cpl
 	and $0f
 	or b
 	out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
     endif
 	ret
 
 sn76489_control:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
 	and $0f
 	or $e0
 	out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
     endif
 	ret
 
@@ -687,10 +904,10 @@ ay3_reg:
 	out ($51),a
 	ret
     endif
-    if SG1000
+    if SG1000+SORD+MEMOTECH+PV2000
         ret
     endif
-    if MSX
+    if MSX+SVI+EINSTEIN+NABU
 	ld e,a
 	ld a,b
 	jp WRTPSG
@@ -712,10 +929,10 @@ ay3_freq:
 	pop af
 	ret
     endif
-    if SG1000
+    if SG1000+SORD+MEMOTECH+PV2000
 	ret
     endif
-    if MSX
+    if MSX+SVI+EINSTEIN+NABU
 	ld e,l
 	call WRTPSG
 	ld e,h
@@ -723,9 +940,11 @@ ay3_freq:
 	jp WRTPSG
     endif
 
-    if SG1000
+    if SG1000+SVI+SORD+MEMOTECH+EINSTEIN+PV2000+NABU
 	; Required for SG1000 as it doesn't have a BIOS
-	;
+	; Required for SVI because we don't have access to BIOS in cartridge.
+	; Required for Sord M5 because it doesn't provide an ASCII charset.
+	; Required for Memotech/Einstein because CP/M uses the memory.
         ; My personal font for TMS9928.
         ;
         ; Patterned after the TMS9928 programming manual 6x8 letters
@@ -853,16 +1072,20 @@ vdp_generic_mode:
 
 mode_0:
 	ld hl,mode
-	res 2,(hl)
+	res 3,(hl)
 	ld bc,$0200
 	ld de,$ff03	; $2000 for color table, $0000 for bitmaps.
 	call vdp_generic_mode
     if COLECO
+      if PENCIL
+        ld hl,($0013)
+      else
 	ld hl,($006c)
+      endif
 	ld de,-128
 	add hl,de
     endif
-    if SG1000
+    if SG1000+SVI+SORD+MEMOTECH+EINSTEIN+PV2000+NABU
 	ld hl,font_bitmaps
     endif
     if MSX
@@ -899,7 +1122,7 @@ vdp_generic_sprites:
 
 mode_1:
 	ld hl,mode
-	res 2,(hl)
+	res 3,(hl)
 	ld bc,$0200
 	ld de,$ff03	; $2000 for color table, $0000 for bitmaps.
 	call vdp_generic_mode
@@ -929,16 +1152,20 @@ mode_1:
 
 mode_2:
 	ld hl,mode
-	set 2,(hl)
+	set 3,(hl)
 	ld bc,$0000
 	ld de,$8000	; $2000 for color table, $0000 for bitmaps.
 	call vdp_generic_mode
     if COLECO
+      if PENCIL
+        ld hl,($0013)
+      else
 	ld hl,($006c)
+      endif
 	ld de,-128
 	add hl,de
     endif
-    if SG1000
+    if SG1000+SVI+SORD+MEMOTECH+EINSTEIN+PV2000+NABU
 	ld hl,font_bitmaps
     endif
     if MSX
@@ -1032,8 +1259,11 @@ nmi_handler:
     endif
 	push af
   endif
-    if SG1000+MSX
-	in a,(VDP+1)
+    if SORD+MEMOTECH
+        call ctc_reti
+    endif
+    if SG1000+MSX+SVI+SORD+MEMOTECH+NABU
+	in a,(VDPR+1)
     endif
 	ld bc,$8000+VDP
 	bit 2,(hl)
@@ -1042,8 +1272,20 @@ nmi_handler:
 	ld hl,$1b00
 	call SETWRT
 	ld hl,sprites
+.7:
+    if PV2000
+	ld a,(hl)
+	ld (VDP),a
+	inc hl
+	djnz .7
+    else
+    if MEMOTECH+EINSTEIN+SG1000
+	nop
+	nop
+    endif
 	outi
-	jp nz,$-2
+	jp nz,.7
+    endif
 	jr .5
 
 .4:
@@ -1052,20 +1294,63 @@ nmi_handler:
 	ld a,(flicker)
 	add a,$04
 	ld (flicker),a
-	ld l,a
-	ld h,sprites>>8
 	ld de,24
 	ld b,128
+	ld l,a
+    if SORD
+    else
+	ld h,sprites>>8
+    endif
 .6:
+    if SORD
+	set 7,l
+	ld h,sprites>>8
+    else
 	res 7,l
+    endif
+    if PV2000
+	ld a,(hl)	;  7  8
+	ld (VDP),a	; 13 14
+	inc hl		;  6  7
+	dec b		;  4  5
+	ld a,(hl)
+	ld (VDP),a
+	inc hl
+	dec b
+	ld a,(hl)
+	ld (VDP),a
+	inc hl
+	dec b
+	ld a,(hl)
+	ld (VDP),a
+	inc hl
+	dec b
+    else
 	outi
 	jp $+3
+    if MEMOTECH+EINSTEIN+SG1000
+	nop
+	nop
+    endif
 	outi
 	jp $+3
+    if MEMOTECH+EINSTEIN+SG1000
+	nop
+	nop
+    endif
 	outi
 	jp $+3
+    if MEMOTECH+EINSTEIN+SG1000
+	nop
+	nop
+    endif
 	outi
 	jp $+3
+    if MEMOTECH+EINSTEIN+SG1000
+	nop
+	nop
+    endif
+    endif
 	add hl,de
 	jp nz,.6
 .5:
@@ -1120,68 +1405,164 @@ nmi_handler:
 	ld a,(hl)
 	ld (key2_data),a
     endif
-    if SG1000				; * Joystick
-	    ld b,$ff
-        
-		push bc								; * modified by Saverio Russo
-		call SG1000_PPI_PLAYER_1_READ		; * modified by Saverio Russo
-		;in a,(JOY1)						; * modified by Saverio Russo
-		pop bc								; * modified by Saverio Russo
-		
-        bit 0,a
+    if SG1000
+	ld a,$07
+	out ($de),a
+	ld b,$ff
+	in a,(JOY1)
+	ld h,a
+	in a,(JOY2)
+	ld l,a
+	in a,($de)
+	cp 7
+	jp nz,.sg1000
+
+	ld a,$00
+	out ($de),a
+	in a,($dc)
+	rra
+	ld c,1
+	jr nc,.sg1
+	in a,($dd)
+	rra
+	ld c,8
+	jr nc,.sg1
+	ld a,$01
+	out ($de),a
+	in a,($dc)
+	rra
+	ld c,2
+	jr nc,.sg1
+	in a,($dd)
+	rra
+	ld c,9
+	jr nc,.sg1
+	ld a,$02
+	out ($de),a
+	in a,($dc)
+	rra
+	ld c,3
+	jr nc,.sg1
+	in a,($dd)
+	rra
+	ld c,0
+	jr nc,.sg1
+	ld a,$03
+	out ($de),a
+	in a,($dc)
+	bit 4,a
+	ld c,10
+	jr z,.sg1
+	rra
+	ld c,4
+	jr nc,.sg1
+	ld a,$04
+	out ($de),a
+	in a,($dc)
+	rra
+	ld c,5
+	jr nc,.sg1
+	ld a,$05
+	out ($de),a
+	in a,($dc)
+	bit 6,a
+	ld c,11
+	jr z,.sg1
+	rra
+	ld c,6
+	jr nc,.sg1
+	ld a,$06
+	out ($de),a
+	in a,($dc)
+	rra
+	ld c,7
+	jr nc,.sg1
+	ld c,15
+.sg1:	ld a,c
+	ld (key1_data),a
+
+	ld a,$04
+	out ($de),a
+	in a,($dc)
+	bit 5,a		; Keyboard down.
+	jr nz,$+4
+	res 1,h
+	ld a,$05
+	out ($de),a
+	in a,($dc)
+	bit 5,a		; Keyboard left.
+	jr nz,$+4
+	res 2,h
+	ld a,$06
+	out ($de),a
+	in a,($dc)
+	bit 5,a		; Keyboard right.
+	jr nz,$+4
+	res 3,h
+	bit 6,a		; Keyboard up.
+	jr nz,$+4
+	res 0,h
+	ld a,$02
+	out ($de),a
+	in a,($dc)
+	bit 4,a		; Keyboard Ins
+	jr nz,$+4
+	res 4,h
+	ld a,$03
+	out ($de),a
+	in a,($dc)
+	bit 4,a		; Keyboard Del
+	jr nz,$+4
+	res 5,h
+.sg1000:
+        bit 0,h
         jr nz,$+4
         res 0,b
-        bit 1,a
+        bit 1,h
         jr nz,$+4
         res 2,b
-        bit 2,a
+        bit 2,h
         jr nz,$+4
         res 3,b
-        bit 3,a
+        bit 3,h
         jr nz,$+4
         res 1,b
-        bit 4,a
+        bit 4,h
         jr nz,$+4
         res 6,b
-        bit 5,a
+        bit 5,h
         jr nz,$+4
         res 7,b
-	push af
 	ld a,b
 	cpl
 	ld (joy1_data),a
-	pop af
 
-	ld b,$ff
-        bit 6,a
+	ld a,$ff
+        bit 6,h
         jr nz,$+4
-        res 0,b
-        bit 7,a
+        res 0,a
+        bit 7,h
         jr nz,$+4
-        res 2,b
+        res 2,a
 
-        in a,(JOY2)
-        bit 0,a
+        bit 0,l
         jr nz,$+4
-        res 3,b
-        bit 1,a
+        res 3,a
+        bit 1,l
         jr nz,$+4
-        res 1,b
-        bit 2,a
+        res 1,a
+        bit 2,l
         jr nz,$+4
-        res 4,b
-        bit 3,a
+        res 4,a
+        bit 3,l
         jr nz,$+4
-        res 5,b
-	push af
-	ld a,b
+        res 5,a
 	cpl
 	ld (joy2_data),a
-	pop af
 
     endif
     if MSX
-
+	; Keyboard matrix from https://map.grauw.nl/articles/keymatrix.php
 	ld a,15
 	call RDPSG
 	and $b0
@@ -1213,6 +1594,44 @@ nmi_handler:
 	ld a,b
 	cpl
 	ld (joy2_data),a
+
+	in a,($aa)
+	and $f0
+	or $00
+	out ($aa),a
+	in a,($a9)
+	cp $ff
+	ld c,$ff
+	jr nz,.key1
+	in a,($aa)
+	and $f0
+	or $01
+	out ($aa),a
+	in a,($a9)
+	and $03
+	cp $03
+	ld c,$07
+	jr nz,.key1
+	in a,($aa)
+	and $f0
+	or $07
+	out ($aa),a
+	in a,($a9)
+	bit 5,a		; BS
+	ld c,$0a
+	jr z,.key2
+	bit 7,a		; RET
+	ld c,$0b
+	jr z,.key2
+	ld c,$0f
+	jr .key2
+
+.key1:	rra
+	inc c
+	jr c,.key1
+.key2:
+	ld a,c
+	ld (key1_data),a	
 
         ld b,$ff
 	in a,($aa)
@@ -1276,6 +1695,614 @@ nmi_handler:
 	cpl
 	ld (joy1_data),a
     endif
+    if SVI
+	ld a,14
+	call RDPSG
+	ld b,$ff
+	bit 4,a
+	jr nz,$+4
+	res 0,b
+	bit 7,a
+	jr nz,$+4
+	res 1,b
+	bit 5,a
+	jr nz,$+4
+	res 2,b
+	bit 6,a
+	jr nz,$+4
+	res 3,b
+
+	in a,($98)
+	bit 5,a
+	jr nz,$+4
+	res 6,b
+	ld a,b
+	cpl
+	ld (joy2_data),a
+
+	ld a,$10
+	out ($96),a
+	in a,($99)
+	cp $ff
+	ld c,$ff
+	jr nz,.key1
+	ld a,$11
+	out ($96),a
+	in a,($99)
+	and $03
+	cp $03
+	ld c,$07
+	jr nz,.key1
+	ld a,$16
+	out ($96),a
+	in a,($99)
+	bit 6,a
+	ld c,$0b
+	jr z,.key2
+	ld a,$15
+	out ($96),a
+	in a,($99)
+	bit 6,a
+	ld c,$0a
+	jr z,.key2
+	ld c,$0f
+	jr .key2
+
+.key1:	rra
+	inc c
+	jr c,.key1
+.key2:
+	ld a,c
+	ld (key1_data),a	
+
+        ld b,$ff
+	ld a,$15
+	out ($96),a
+	in a,($99)
+	bit 7,a
+	jr nz,$+4
+        res 0,b
+	ld a,$18
+	out ($96),a
+	in a,($99)
+	bit 7,a
+	jr nz,$+4
+        res 1,b
+	ld a,$17
+	out ($96),a
+	in a,($99)
+	bit 7,a
+        jr nz,$+4
+        res 2,b
+	ld a,$16
+	out ($96),a
+	in a,($99)
+	bit 7,a
+        jr nz,$+4
+        res 3,b
+	ld a,$18
+	out ($96),a
+	in a,($99)
+	bit 0,a
+	jr nz,$+4
+	res 6,b
+	ld a,$13
+	out ($96),a
+	in a,($99)
+	bit 5,a
+	jr nz,$+4
+	res 7,b
+
+	ld a,14
+	call RDPSG
+	bit 0,a
+	jr nz,$+4
+	res 0,b
+	bit 3,a
+	jr nz,$+4
+	res 1,b
+	bit 1,a
+	jr nz,$+4
+	res 2,b
+	bit 2,a
+	jr nz,$+4
+	res 3,b
+	
+	in a,($98)
+	bit 4,a
+	jr nz,$+4
+	res 6,b
+	ld a,b
+	cpl
+	ld (joy1_data),a
+    endif
+    if SORD
+	ld bc,$ffff
+	in a,($37)	; Read joystick
+	rra
+	jr nc,$+4
+	res 1,b
+	rra
+	jr nc,$+4
+	res 0,b
+	rra
+	jr nc,$+4
+	res 3,b
+	rra
+	jr nc,$+4
+	res 2,b
+	rra
+	jr nc,$+4
+	res 1,c
+	rra
+	jr nc,$+4
+	res 0,c
+	rra
+	jr nc,$+4
+	res 3,c
+	rra
+	jr nc,$+4
+	res 2,c
+	in a,($31)
+	rra
+	jr nc,$+4
+	res 6,b
+	rra
+	jr nc,$+4
+	res 7,b
+	rra
+	rra
+	rra
+	jr nc,$+4
+	res 6,c
+	rra
+	jr nc,$+4
+	res 7,c
+	ld a,b
+	cpl
+	ld (joy1_data),a
+	ld a,c
+	cpl
+	ld (joy2_data),a
+	in a,($31)	; Keyboard 1-8
+	or a
+	ld c,$00
+	jr nz,.key3
+	in a,($35)	
+	bit 0,a		; 9
+	ld c,$09
+	jr nz,.key5
+	bit 1,a		; 0
+	ld c,$00
+	jr nz,.key5
+	bit 7,a		; Backspace
+	ld c,$0a
+	jr nz,.key5
+	in a,($30)
+	bit 7,a		; Enter
+	ld c,$0b	
+	jr nz,.key5
+	ld c,$0f
+	jr .key5
+
+.key3:	rra
+	inc c
+	jr nc,.key3
+.key5:
+	ld a,c
+	ld (key1_data),a	
+
+    endif
+    if MEMOTECH
+	ld bc,$ffff
+
+        ld a,$fb
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 7,a
+        jr nz,$+4
+        res 0,b         ; Up direction.
+        bit 3,a		; Y
+        jr nz,$+4
+        res 0,c		; Up direction.
+
+        ld a,$ef
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 7,a
+        jr nz,$+4
+        res 1,b         ; Right key.
+        ld a,$bf
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 7,a
+        jr nz,$+4
+        res 2,b         ; Down key.
+        ld a,$f7
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 7,a
+        jr nz,$+4
+        res 3,b         ; Left key.
+        ld a,$df
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 7,a         ; Home key.
+        jr nz,$+4
+        res 6,b         ; Button 1
+
+        ld a,$7F
+        out ($05),a	; Select keyboard row.
+        ex (sp),hl
+        ex (sp),hl
+        in a,($05)	; Read keyboard data.
+        bit 2,a		; B
+        jr nz,$+4
+        res 0,c         ; Up key.
+        bit 1,a		; C
+        jr nz,$+4
+        res 1,c         ; Right key.
+        bit 3,a		; M
+        jr nz,$+4
+        res 2,c         ; Down key.
+        bit 0,a		; Z
+        jr nz,$+4
+        res 3,c         ; Left key.
+	bit 5,a		; -
+	jr nz,$+4
+	res 7,c		; Button 2 for player 2.
+	bit 7,a		; -
+	jr nz,$+4
+	res 7,b		; Button 2 for player 1.
+        in a,($06)	; Read keyboard data.
+        bit 0,a         ; Space
+        jr nz,$+4
+        res 6,c         ; Button 1.
+	ld a,b
+	cpl
+	ld (joy1_data),a
+	ld a,c
+	cpl
+	ld (joy2_data),a
+
+	ld a,$fe
+	out ($05),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($05)
+	rra
+	ld b,1
+	jr nc,.mt1
+	rra
+	ld b,3
+	jr nc,.mt1
+	rra
+	ld b,5
+	jr nc,.mt1
+	rra
+	ld b,7
+	jr nc,.mt1
+	rra
+	ld b,9
+	jr nc,.mt1
+	ld a,$df
+	out ($05),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($05)
+	bit 6,a
+	ld b,11
+	jr z,.mt1
+	ld a,$fd
+	out ($05),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($05)
+	rra
+	rra
+	ld b,2
+	jr nc,.mt1
+	rra
+	ld b,4
+	jr nc,.mt1
+	rra
+	ld b,6
+	jr nc,.mt1
+	rra
+	ld b,8
+	jr nc,.mt1
+	rra
+	ld b,0
+	jr nc,.mt1
+	in a,($06)
+	rra
+	ld b,10
+	jr nc,.mt1
+	ld b,15
+.mt1:
+	ld a,b
+	ld (key1_data),a
+    endif
+    if EINSTEIN
+	ld bc,$ffff
+        ld a,$0e
+        out ($02),a  
+        ld a,$f7
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+        bit 6,a
+        jr nz,$+4
+        res 0,b		; Up
+        ld a,$0e
+        out ($02),a
+        ld a,$fb
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a 
+        in a,($02)
+        bit 4,a
+        jr nz,$+4
+        res 1,b		; Right
+        ld a,$0e
+        out ($02),a
+        ld a,$fd
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a
+        in a,($02)
+        bit 5,a
+        jr nz,$+4
+        res 2,b		; Down
+        ld a,$0e
+        out ($02),a 
+        ld a,$fd
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a
+        in a,($02)
+        bit 3,a
+        jr nz,$+4
+        res 3,b		; Left
+        ld a,$0e
+        out ($02),a
+        ld a,$fe
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+        bit 6,a
+        jr nz,$+4
+        res 6,b         ; Fire
+        ld a,$0e
+        out ($02),a
+        ld a,$7f
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+        bit 0,a
+        jr nz,$+4
+        res 7,b         ; 2nd fire
+	ld a,b
+	cpl
+	ld (joy1_data),a
+	ld a,c
+	cpl
+	ld (joy2_data),a
+
+        ld a,$0e
+        out ($02),a
+        ld a,$ef
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+	rra
+	ld b,7
+	jr nc,.te1
+	rra
+	ld b,6
+	jr nc,.te1
+	rra
+	ld b,5
+	jr nc,.te1
+	rra
+	ld b,4
+	jr nc,.te1
+	rra
+	ld b,3
+	jr nc,.te1
+	rra
+	ld b,2
+	jr nc,.te1
+	rra
+	ld b,1
+	jr nc,.te1
+        ld a,$0e
+        out ($02),a
+        ld a,$f7
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+	bit 3,a
+	ld b,8
+	jr z,.te1
+	bit 4,a
+	ld b,10
+	jr z,.te1
+        ld a,$0e
+        out ($02),a
+        ld a,$fb
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+	bit 6,a
+	ld b,9
+	jr z,.te1
+        ld a,$0e
+        out ($02),a
+        ld a,$fe
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+	bit 5,a
+	ld b,11
+	jr z,.te1
+        ld a,$0e
+        out ($02),a
+        ld a,$fd
+        out ($03),a
+        ex (sp),hl
+        ex (sp),hl
+        ld a,$0f
+        out ($02),a  
+        in a,($02)
+	bit 7,a
+	ld b,0
+	jr z,.te1
+	ld b,15
+.te1:
+	ld a,b
+	ld (key1_data),a
+    endif
+    if PV2000
+	ld bc,$ffff
+	ld a,7
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($20)
+	bit 1,a
+	jr z,$+4
+	res 0,b
+	bit 0,a
+	jr z,$+4
+	res 3,b
+	ld a,6
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($20)
+	bit 1,a
+	jr z,$+4
+	res 1,b
+	bit 0,a
+	jr z,$+4
+	res 2,b
+	ld a,8
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($20)
+	bit 0,a
+	jr z,$+4
+	res 6,b
+	bit 1,a
+	jr z,$+4
+	res 7,b
+	ld a,b
+	cpl
+	ld (joy1_data),a
+	ld a,c
+	cpl
+	ld (joy2_data),a
+	ld a,0
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($20)
+	and $0f
+	ld b,$04
+	jr nz,.pv1
+	in a,($10)
+	and $0f
+	ld b,$08
+	jr nz,.pv1
+	ld a,8
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($10)
+	ld b,11
+	bit 0,a
+	jr nz,.pv2
+	ld a,4
+	out ($20),a
+	ex (sp),hl
+	ex (sp),hl
+	in a,($20)
+	ld b,10
+	bit 3,a
+	jr nz,.pv2
+	in a,($10)
+	ld b,9
+	bit 0,a
+	jr nz,.pv2
+	ld b,0
+	bit 3,a
+	jr nz,.pv2
+	ld b,15
+	jr .pv2
+
+.pv1:	rra
+	jr c,.pv2
+	dec b
+	rra
+	jr c,.pv2
+	dec b
+	rra
+	jr c,.pv2
+	dec b
+.pv2:	ld a,b
+	ld (key1_data),a
+    endif
+    if NABU
+	ld a,(nabu_data0)
+	and $cf
+	ld (joy1_data),a
+	ld a,(nabu_data1)
+	and $cf
+	ld (joy2_data),a
+	ld a,(nabu_data2)
+	ld (key1_data),a
+	ld a,$0f
+	ld (nabu_data2),a
+    endif
 
     if CVBASIC_MUSIC_PLAYER
 	ld a,(music_mode)
@@ -1336,7 +2363,7 @@ nmi_handler:
 	pop af
 	retn
     endif
-    if SG1000
+    if SG1000+SVI+NABU
 	pop af
         ei
         reti
@@ -1344,6 +2371,145 @@ nmi_handler:
     if MSX
 	pop af
         ret
+    endif
+    if SORD+MEMOTECH
+	pop af
+        ei
+        ret
+
+ctc_reti:
+	reti
+    endif
+    if EINSTEIN
+	pop af
+	ret
+    endif
+    if PV2000
+	ld a,(VDP+1)
+	pop af
+	retn
+    endif
+
+    if NABU
+keyboard_handler:
+	push af
+	push bc
+	push hl
+	in a,($90)
+	ld c,a
+	cp $0d	; Enter
+	ld a,11
+	jr z,.8
+	ld a,c
+	cp $7f	; Del
+	ld a,10
+	jr z,.8
+	ld a,c
+	cp $30
+	jr c,.7
+	cp $3a
+	jr nc,.7
+	sub $30
+.8:	ld (nabu_data2),a
+	jr .1
+.7:
+	cp $a0
+	jr c,.2
+	cp $c0
+	jr c,.joystick
+.2:
+	ld hl,nabu_data0
+	cp $80
+	jr nz,.3
+	res 4,(hl)
+	jr .1
+.3:
+	cp $81
+	jr nz,.4
+	set 4,(hl)
+	jr .1
+.4:
+	cp $e0
+	jr c,.1
+	and $0f
+	ld b,2
+	jr z,.5
+	dec a
+	ld b,8
+	jr z,.5
+	dec a
+	ld b,1
+	jr z,.5
+	dec a
+	ld b,4
+	jr z,.5
+	dec a
+	ld b,$80
+	jr z,.5
+	dec a
+	ld b,$40
+	jr nz,.1
+.5:	bit 4,c
+	jr nz,.6
+	ld a,(hl)
+	or b
+	ld (hl),a
+	jr .1
+
+.6:
+	ld a,b
+	cpl
+	and (hl)
+	ld (hl),a
+	jr .1
+
+.joystick:
+	ld hl,nabu_data0
+	bit 4,(hl)
+	jr z,$+5
+	ld hl,nabu_data1
+	ld b,$00
+	bit 3,c
+	jr z,$+4
+	set 0,b
+	bit 2,c
+	jr z,$+4
+	set 1,b
+	bit 1,c
+	jr z,$+4
+	set 2,b
+	bit 0,c
+	jr z,$+4
+	set 3,b
+	bit 4,c
+	jr z,$+4
+	set 6,b
+	ld (hl),b
+.1:
+	pop hl
+	pop bc
+	pop af
+	ei
+	reti
+    endif
+    if SORD
+wait:
+	ld de,(frame)
+.1:
+	ld hl,(frame)
+	or a
+	sbc hl,de
+	jr z,.1
+	ret
+    endif
+    if EINSTEIN
+wait:
+	in a,(VDP+1)
+	nop
+	in a,(VDP+1)
+	bit 7,a
+	jr z,$-4
+	jp nmi_handler
     endif
 
 	;
@@ -1355,22 +2521,40 @@ nmi_handler:
         ; Init music player.
         ;
 music_init:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
         ld a,$9f
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,$bf
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,$df
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,$ff
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,$ec
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
     endif
-    if MSX
-WRTPSG:	equ $0093
-RDPSG:	equ $0096
-
+    if COLECO+SG1000+MSX+SVI+SORD+MEMOTECH+PV2000
+MIX_BASE:	equ $b8
+    endif
+    if EINSTEIN+NABU
+MIX_BASE:	equ $78
+    endif
+    if MSX+SVI+EINSTEIN+NABU
 	ld a,$08
 	ld e,$00
 	call WRTPSG
@@ -1381,7 +2565,7 @@ RDPSG:	equ $0096
 	ld e,$00
 	call WRTPSG
 	ld a,$07
-	ld e,$b8
+	ld e,MIX_BASE
 	call WRTPSG
     endif
     if SGM
@@ -1406,7 +2590,7 @@ RDPSG:	equ $0096
         ld (audio_vol4hw),a
         ld a,$ec
         ld (audio_control),a
-        ld a,$b8
+        ld a,MIX_BASE
         ld (audio_mix),a
 	ld hl,music_silence
         ;
@@ -1776,7 +2960,7 @@ music_flute:
         ; Emit sound.
         ;
 music_hardware:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
 	ld a,(music_mode)
 	cp 4		; PLAY SIMPLE?
 	jr c,.7		; Yes, jump.
@@ -1801,12 +2985,18 @@ music_hardware:
         and $0f
         or $80
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         add hl,hl
         add hl,hl
         add hl,hl
         add hl,hl
         ld a,h
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,(audio_vol1)
         add a,ay2sn&255
         ld l,a
@@ -1816,6 +3006,9 @@ music_hardware:
         ld a,(hl)
         or $90
 .1:     out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
 
         ld hl,(audio_freq2)
         ld a,h
@@ -1826,12 +3019,18 @@ music_hardware:
         and $0f
         or $a0
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         add hl,hl
         add hl,hl
         add hl,hl
         add hl,hl
         ld a,h
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,(audio_vol2)
         add a,ay2sn&255
         ld l,a
@@ -1841,6 +3040,9 @@ music_hardware:
         ld a,(hl)
         or $b0
 .2:     out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
 
 	ld a,(music_mode)
 	cp 4		; PLAY SIMPLE?
@@ -1855,12 +3057,18 @@ music_hardware:
         and $0f
         or $c0
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         add hl,hl
         add hl,hl
         add hl,hl
         add hl,hl
         ld a,h
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ld a,(audio_vol3)
         add a,ay2sn&255
         ld l,a
@@ -1870,6 +3078,9 @@ music_hardware:
         ld a,(hl)
         or $d0
 .3:     out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
 
 .6:
 	ld a,(music_mode)
@@ -1891,11 +3102,17 @@ music_hardware:
         ld a,b
         ld (audio_control),a
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
 .4:     ld a,(audio_vol4hw)
         out (PSG),a
+      if MEMOTECH
+	in a,($03)
+      endif
         ret
     endif
-    if MSX
+    if MSX+SVI+EINSTEIN+NABU
 	ld a,(music_mode)
 	cp 4		; PLAY SIMPLE?
 	jr c,.8		; Yes, jump.	
@@ -1953,7 +3170,7 @@ music_hardware:
         ; Enable drum.
         ;
 enable_drum:
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
         ld a,$f5
         ld (audio_vol4hw),a
     else
@@ -1974,20 +3191,37 @@ enable_drum:
 music_notes_table:
         ; Silence - 0
         dw 0
-        ; 2nd octave - 1
-        dw 1721,1621,1532,1434,1364,1286,1216,1141,1076,1017,956,909
-        ; 3rd octave - 13
-        dw 854,805,761,717,678,639,605,571,538,508,480,453
-        ; 4th octave - 25
-        dw 427,404,380,360,339,321,302,285,270,254,240,226
-        ; 5th octave - 37
-        dw 214,202,191,180,170,160,151,143,135,127,120,113
-        ; 6th octave - 49
-        dw 107,101,95,90,85,80,76,71,67,64,60,57
-        ; 7th octave - 61
-	dw 54,51,48
+    if MEMOTECH+EINSTEIN
+	; Values for 4.00 mhz.
+	; 2nd octave - Index 1
+	dw 1911,1804,1703,1607,1517,1432,1351,1276,1204,1136,1073,1012
+	; 3rd octave - Index 13
+	dw 956,902,851,804,758,716,676,638,602,568,536,506
+	; 4th octave - Index 25
+	dw 478,451,426,402,379,358,338,319,301,284,268,253
+	; 5th octave - Index 37
+	dw 239,225,213,201,190,179,169,159,150,142,134,127
+	; 6th octave - Index 49
+	dw 119,113,106,100,95,89,84,80,75,71,67,63
+	; 7th octave - Index 61
+	dw 60,56,53
+    else
+	; Values for 3.58 mhz.
+	; 2nd octave - Index 1
+	dw 1710,1614,1524,1438,1357,1281,1209,1141,1077,1017,960,906
+	; 3rd octave - Index 13
+	dw 855,807,762,719,679,641,605,571,539,508,480,453
+	; 4th octave - Index 25
+	dw 428,404,381,360,339,320,302,285,269,254,240,226
+	; 5th octave - Index 37
+	dw 214,202,190,180,170,160,151,143,135,127,120,113
+	; 6th octave - Index 49
+	dw 107,101,95,90,85,80,76,71,67,64,60,57
+	; 7th octave - Index 61
+	dw 53,50,48
+    endif
 
-    if COLECO+SG1000
+    if COLECO+SG1000+SORD+MEMOTECH+PV2000
         ;
         ; Converts AY-3-8910 volume to SN76489
         ;
@@ -2012,7 +3246,7 @@ define_char_unpack:
 	add hl,hl	; x8
 	ex de,hl
 	ld a,(mode)
-	and 4
+	and 8
 	jp z,unpack3
 	jp unpack
 
@@ -2186,45 +3420,126 @@ unpack:
     endif
 
 START:
+    if SVI+SG1000
+	im 1
+    endif
+    if MEMOTECH
+Z80_CTC:	equ $08
+    endif
+    if EINSTEIN
+Z80_CTC:	equ $28
+    endif
+
+    if EINSTEIN+MEMOTECH
+	di
+	im 2
+	ld a,rom_start>>8
+	ld i,a
+	ld a,$03	; Reset Z80 CTC
+	out (Z80_CTC+0),a
+	out (Z80_CTC+1),a
+	out (Z80_CTC+2),a
+	out (Z80_CTC+3),a
+	out (Z80_CTC+0),a
+	out (Z80_CTC+1),a
+	out (Z80_CTC+2),a
+	out (Z80_CTC+3),a
+	ld a,$08	; Interrupt vector offset
+	out (Z80_CTC+0),a	
+    endif
+    if MEMOTECH
+	ld a,$25	; Disable channel 2 interrupt.
+	out (Z80_CTC+2),a
+	ld a,$9c
+	out (Z80_CTC+2),a
+	ld a,$25	; Disable channel 1 interrupt.
+	out (Z80_CTC+1),a
+	ld a,$9c
+	out (Z80_CTC+1),a
+	ld a,$c5	; Enable channel 0 interrupt (VDP).
+	out (Z80_CTC+0),a
+	ld a,$01
+	out (Z80_CTC+0),a
+    endif
+    if SORD
+	ld hl,$186c	; Disable handling of CTC Channel 1 interruption.
+	ld ($7002),hl
+	ld hl,$7040
+	set 0,(hl)	; Avoid BIOS VDP handling.
+    endif
+    if SVI
+	ld e,$00
+	ld a,$08
+	call WRTPSG
+	ld a,$09
+	call WRTPSG
+	ld a,$0A
+	call WRTPSG
+	ld a,$07
+	ld e,$b8
+	call WRTPSG
+	ld a,$92	; Setup 8255 for keyboard/joystick reading.
+	out ($97),a
+    endif
     if SG1000
-	
-	; * Added by Saverio Russo - BEGIN -----------
-	; SG-1000/SC-3000 has no BIOS, PSG needs to be stopped ASAP
-	ld a, $9F
-	out (PSG), a
-	ld a, $BF	
-	out (PSG), a
-	ld a, $DF
-	out (PSG), a
-	ld a, $FF
-	out (PSG), a	
-
-	; Wait for VDP ready	; close to 1000 ms
-	ld b, 11				; Loretta waits for 1903 ms, Gulkave waits for 536 ms - ON Mark III could be higher (e.g. 20)
-	ld de, $FFFF
-.vdp_init_delay_outer:
-	ld hl, $39DE
-.vdp_init_delay_inner:
-	add hl, de
-	jr c, .vdp_init_delay_inner
-	djnz .vdp_init_delay_outer
-
-	; * Added by Saverio Russo - END -----------
-
+	; Contributed by SiRioKD
+	ld a,$9F	; Turn off PSG
+	out (PSG),a
+	ld a,$BF	
+	out (PSG),a
+	ld a,$DF
+	out (PSG),a
+	ld a,$FF
+	out (PSG),a	
 	ld a,$92	; Setup 8255 for SC3000.
 	out ($df),a
-	ld a,$07	; Read joysticks instead of keyboard.
-	out ($de),a
+    endif
+    if SG1000+SVI
+	; Wait for VDP ready (around 1000 ms)
+	ld b,11
+	ld de,$FFFF
+.delay1:
+	ld hl,$39DE
+.delay2:
+	add hl,de
+	jr c,.delay2
+	djnz .delay1
     else
 	di
-    endif
 	ld sp,STACK
-	in a,(VDP+1)
+    endif
+    if NABU
+	im 2
+	ld a,nabu_int>>8
+	ld i,a
+	ld a,$03	; Disable ROM
+	out ($00),a
+	ld a,$07
+	out ($41),a
+	ld a,$78	; Setup output ports and mixer.
+	out ($40),a
+	ld a,$0e
+	out ($41),a
+	ld a,$30	; Enable video and keyboard.
+	out ($40),a
+    endif
+    if PV2000
+	ld hl,nmi_handler
+	ld ($7499),hl
+	ld a,(VDPR+1)
 	ld bc,$8201
 	call WRTVDP
-	in a,(VDP+1)
+	ld a,(VDPR+1)
 	ld bc,$8201
 	call WRTVDP
+    else
+	in a,(VDPR+1)
+	ld bc,$8201
+	call WRTVDP
+	in a,(VDPR+1)
+	ld bc,$8201
+	call WRTVDP
+    endif
   if CVBASIC_BANK_SWITCHING
     if COLECO
 	ld a,($ffc0)	; Megacart
@@ -2238,39 +3553,27 @@ START:
         ld ($7000),a
     endif
   endif
+    if MEMOTECH+EINSTEIN+NABU
+	ld ix,(lfsr)
+	ld hl,ram_start
+	ld de,ram_start+1
+	ld bc,ram_end-ram_start-1
+	ld (hl),0
+	ldir
+	ld (lfsr),ix
+    else
 	ld hl,(lfsr)	; Save RAM trash for random generator.
 	ld de,BASE_RAM
 	xor a
 	ld (de),a
 	inc de
+      if PV2000
+        bit 7,d
+      else
 	bit 2,d
+      endif
 	jp z,$-4
 	ld (lfsr),hl
-
-    if COLECO
-	ld a,($0069)
-	cp 50
-	ld a,0
-	jr z,$+4
-	ld a,1
-	ld (ntsc),a
-    endif
-    if SG1000
-	ld a,1
-	ld (ntsc),a
-    endif
-    if MSX
-	ld a,($002b)
-	cpl
-	rlca
-	and $01
-	ld (ntsc),a
-
-        call RSLREG
-        ld b,1          ; $4000-$7fff
-        call get_slot_mapping
-        ld h,$80
-        call ENASLT     ; Map into $8000-$BFFF
     endif
 
     if SGM
@@ -2348,6 +3651,33 @@ WRITE_VRAM:	equ $1fdf
         ldir
 	ld (lfsr),ix
     endif
+    if COLECO
+	ld a,($0069)
+	cp 50
+	ld a,1
+	jr nz,$+3
+	dec a
+    endif
+    if SG1000+SVI+SORD+PV2000+NABU
+	ld a,1		; Always NTSC.
+    endif
+    if MEMOTECH+EINSTEIN
+	ld a,0		; Always PAL.
+    endif
+    if MSX
+        call RSLREG
+        ld b,1          ; $4000-$7fff
+        call get_slot_mapping
+        ld h,$80
+        call ENASLT     ; Map into $8000-$BFFF
+
+	ld a,($002b)
+	cpl
+	rlca
+	and $01
+    endif
+	ld (ntsc),a
+
 	call music_init
 
 	xor a
@@ -2355,12 +3685,19 @@ WRITE_VRAM:	equ $1fdf
 
 	call mode_0
 
-	ld a,$ff
+	xor a
 	ld (joy1_data),a
 	ld (joy2_data),a
+    if NABU
+        ld (nabu_data0),a
+        ld (nabu_data1),a
+    endif
 	ld a,$0f
 	ld (key1_data),a
 	ld (key2_data),a
+    if NABU
+        ld (nabu_data2),a
+    endif
 
     if MSX
 	ld hl,nmi_handler
@@ -2368,10 +3705,9 @@ WRITE_VRAM:	equ $1fdf
 	ld a,$c3
 	ld ($fd9a),a
     endif
-
-
-
-
-
+    if SORD
+	ld hl,nmi_handler
+	ld ($7006),hl
+    endif
 
 	; CVBasic program start.
