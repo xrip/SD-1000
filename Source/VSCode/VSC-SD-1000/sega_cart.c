@@ -100,10 +100,10 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 #define ROM_SIZE  65536L
 unsigned char ROM[ROM_SIZE];
 unsigned char files[256 * 256] = {0};
-unsigned char nomefiles[32 * 25] = {0};
+unsigned char file_names[32 * 25] = {0};
 char current_path[1024] = "\0";
 char path[1024];
-unsigned int fileda = 0, filea = 0;
+unsigned int file_start_idx = 0, file_end_idx = 0;
 
 
 /*
@@ -113,12 +113,16 @@ unsigned int fileda = 0, filea = 0;
  sega must be running from RAM when it sends a command, since the mcu on the cart will
  go away at that point. Sega polls 50001 until it reads $1.
 */
+// Memory locations for communication
+#define CMD_ADDR        50000
+#define PARAM_ADDR      50001
+#define FILELIST_ADDR   50002
+#define FILETYPE_ADDR   51000
+#define FILEPAGE_START  51030
+#define ACK_ADDR        49999
 
 void __not_in_flash_func(core1_main()) {
-    char dataWrite = 0;
-
     multicore_lockout_victim_init();
-
 
     gpio_set_dir_in_masked(ALWAYS_IN_MASK);
     // Initial conditions
@@ -127,15 +131,14 @@ void __not_in_flash_func(core1_main()) {
     while (1) {
         while (gpio_get_all() & MREQ_PIN_MASK); //memr = b5 mreq=b10
         const uint32_t pins = gpio_get_all(); // re-read for SG-1000;
-        const uint32_t addr = pins & BUS_PIN_MASK;
+        const uint32_t address = pins & BUS_PIN_MASK;
         if (!(pins & MEMR_PIN_MASK)) {
             SET_DATA_MODE_OUT;
-            gpio_put_masked(DATA_PIN_MASK, ROM[addr] << 16);
+            gpio_put_masked(DATA_PIN_MASK, ROM[address] << 16);
             //   while (!(gpio_get_all() & MEMR_PIN_MASK));
             SET_DATA_MODE_IN;
-        } else if (!(pins & (MEMW_PIN_MASK))) {
-            dataWrite = ((gpio_get_all() & DATA_PIN_MASK) >> 16);
-            ROM[addr] = dataWrite;
+        } else if (!(pins & MEMW_PIN_MASK)) {
+            ROM[address] = (gpio_get_all() & DATA_PIN_MASK) >> 16;
             // while (!(gpio_get_all() & MEMW_PIN_MASK));
         }
     }
@@ -145,7 +148,7 @@ void __not_in_flash_func(core1_main()) {
 //                     MENU Reset
 ////////////////////////////////////////////////////////////////////////////////////
 
-void reset() {
+void reset_sg1000() {
     multicore_lockout_start_blocking();
 
     while (!(gpio_get_all() & MEMR_PIN_MASK));
@@ -179,13 +182,20 @@ typedef struct {
     char full_path[210];
 } DIR_ENTRY; // 256 bytes = 256 entries in 64k
 
-int num_dir_entries = 0; // how many entries in the current directory
+unsigned int num_dir_entries = 0; // how many entries in the current directory
 
+/**
+ * Compare function for directory entries sorting
+ */
 static int entry_compare(const void *p1, const void *p2) {
     const DIR_ENTRY *e1 = (DIR_ENTRY *) p1;
     const DIR_ENTRY *e2 = (DIR_ENTRY *) p2;
+
+    // Directories come first
     if (e1->isDir && !e2->isDir) return -1;
     if (!e1->isDir && e2->isDir) return 1;
+
+    // Then sort alphabetically
     return strcasecmp(e1->long_filename, e2->long_filename);
 }
 
@@ -195,128 +205,147 @@ static char *get_filename_ext(char *filename) {
     return dot + 1;
 }
 
-static int is_valid_file(char *filename) {
-    const char *ext = get_filename_ext(filename);
-    if (strcasecmp(ext, "BIN") == 0 || strcasecmp(ext, "ROM") == 0
-        || strcasecmp(ext, "SMS") == 0
-        || strcasecmp(ext, "SG") == 0 || strcasecmp(ext, "SC") == 0)
-        return 1;
-    return 0;
+
+/**
+ * Check if file is a valid ROM
+ */
+static int is_valid_file(const char *filename) {
+    const char *ext = get_filename_ext((char *) filename);
+    return strcasecmp(ext, "BIN") == 0 ||
+           strcasecmp(ext, "ROM") == 0 ||
+           strcasecmp(ext, "SMS") == 0 ||
+           strcasecmp(ext, "SG") == 0 ||
+           strcasecmp(ext, "SC") == 0;
 }
 
-static int read_directory(const char *path) {
+/**
+ * Read directory contents
+ */
+static unsigned int read_directory(const char *path) {
     FILINFO fno;
-    int ret = 0;
     num_dir_entries = 0;
     DIR_ENTRY *dst = (DIR_ENTRY *) &files[0];
 
-    if (!fatfs_is_mounted())
+    if (!fatfs_is_mounted()) {
         mount_fatfs_disk();
+    }
 
     FATFS FatFs;
-    if (f_mount(&FatFs, "", 1) == FR_OK) {
-        DIR dir;
-        if (f_opendir(&dir, path) == FR_OK) {
-            while (num_dir_entries < 255) {
-                if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == 0)
-                    break;
-                if (fno.fattrib & (AM_HID | AM_SYS))
-                    continue;
-                dst->isDir = fno.fattrib & AM_DIR ? 1 : 0;
-                if (!dst->isDir)
-                    if (!is_valid_file(fno.fname)) continue;
-                // copy file record to first ram block
-                // long file name
-                strncpy(dst->long_filename, fno.fname, 31);
-                dst->long_filename[31] = 0;
-                // 8.3 name
-                if (fno.altname[0])
-                    strcpy(dst->filename, fno.altname);
-                else {
-                    // no altname when lfn is 8.3
-                    strncpy(dst->filename, fno.fname, 12);
-                    dst->filename[12] = 0;
-                }
-                dst->full_path[0] = 0; // path only for search results
-                dst++;
-                num_dir_entries++;
-            }
-            f_closedir(&dir);
-        } // else strcpy(errorBuf, "Can't read directory");
-        f_mount(0, "", 1);
-        qsort((DIR_ENTRY *) &files[0], num_dir_entries, sizeof(DIR_ENTRY), entry_compare);
-        ret = 1;
-    } // else strcpy(errorBuf, "Can't read flash memory");
-    return ret;
-}
-
-
-/* load file in  ROM */
-
-static unsigned int load_file(char *filename) {
-    FATFS FatFs;
-    UINT br, size = 0;
-
-
     if (f_mount(&FatFs, "", 1) != FR_OK) {
-        // strcpy(errorBuf, "Can't read flash memory");
         return 0;
     }
-    FIL fil;
-    if (f_open(&fil, filename, FA_READ) != FR_OK) {
-        // strcpy(errorBuf, "Can't open file");
-        goto cleanup;
+
+    DIR dir;
+    if (f_opendir(&dir, path) != FR_OK) {
+        f_mount(0, "", 1);
+        return 0;
     }
 
+    // Read directory entries
+    while (num_dir_entries < 255) {
+        if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == 0) {
+            break;
+        }
 
-    // set a default error
-    // strcpy(errorBuf, "Can't read file");
+        // Skip hidden and system files
+        if (fno.fattrib & (AM_HID | AM_SYS)) {
+            continue;
+        }
 
-    unsigned char *dst = &files[0];
-    const int bytes_to_read = 64 * 1024;
-    // read the file to SRAM
-    if (f_read(&fil, dst, bytes_to_read, &br) != FR_OK) {
-        goto closefile;
+        // Add directories and valid files
+        dst->isDir = (fno.fattrib & AM_DIR) ? 1 : 0;
+        if (!dst->isDir && !is_valid_file(fno.fname)) {
+            continue;
+        }
+
+        // Copy filename information
+        strncpy(dst->long_filename, fno.fname, sizeof(dst->long_filename) - 1);
+        dst->long_filename[sizeof(dst->long_filename) - 1] = 0;
+
+        // Copy 8.3 filename
+        if (fno.altname[0]) {
+            strncpy(dst->filename, fno.altname, sizeof(dst->filename) - 1);
+        } else {
+            strncpy(dst->filename, fno.fname, sizeof(dst->filename) - 1);
+        }
+        dst->filename[sizeof(dst->filename) - 1] = 0;
+
+        dst->full_path[0] = 0;
+        dst++;
+        num_dir_entries++;
     }
-    size += br;
 
-
-closefile:
-    f_close(&fil);
-cleanup:
+    f_closedir(&dir);
     f_mount(0, "", 1);
 
-    return br;
+    // Sort entries
+    qsort((DIR_ENTRY *) &files[0], num_dir_entries, sizeof(DIR_ENTRY), entry_compare);
+
+    return 1;
+}
+
+/**
+ * Load ROM file into memory
+ */
+static uint32_t load_file(const char *filename) {
+    FATFS FatFs;
+    FIL fil;
+    UINT bytes_read = 0;
+
+    if (f_mount(&FatFs, "", 1) != FR_OK) {
+        return 0;
+    }
+
+    if (f_open(&fil, filename, FA_READ) != FR_OK) {
+        f_mount(0, "", 1);
+        return 0;
+    }
+
+    // Read file into buffer
+    uint8_t *dst = &files[0];
+    const uint32_t bytes_to_read = ROM_SIZE;
+
+    if (f_read(&fil, dst, bytes_to_read, &bytes_read) != FR_OK) {
+        bytes_read = 0;
+    }
+
+    f_close(&fil);
+    f_mount(0, "", 1);
+
+    return bytes_read;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
 //                     filelist
 ////////////////////////////////////////////////////////////////////////////////////
 
-void filelist(const DIR_ENTRY *en, const unsigned int da, const unsigned int a) {
-    char longfilename[32];
+void update_file_list() {
+    const DIR_ENTRY *entries = (DIR_ENTRY *) &files[0];
+    memset(&ROM[FILELIST_ADDR], 0, 32 * 20);
 
-    for (int i = 0; i < 32 * 20; i++) ROM[50002 + i] = 0;
-    for (int n = 0; n < (a - da); n++) {
-        memset(longfilename, 0, 32);
+    for (int n = 0; n < file_end_idx - file_start_idx; n++) {
+        const DIR_ENTRY *entry = &entries[n + file_start_idx];
+        char display_name[32] = {0};
 
-        if (en[n + da].isDir) {
-            strcpy(longfilename, "DIR->");
-            ROM[51000 + n] = 1;
-            strcat(longfilename, en[n + da].long_filename);
+        if (entry->isDir) {
+            strcpy(display_name, "DIR>");
+            strcat(display_name, entry->long_filename);
+            ROM[FILETYPE_ADDR + n] = 1;
         } else {
-            ROM[51000 + n] = 0;
-            strcpy(longfilename, en[n + da].long_filename);
+            strcpy(display_name, entry->long_filename);
+            ROM[FILETYPE_ADDR + n] = 0;
         }
         for (int i = 0; i < 31; i++) {
-            ROM[50002 + i + (n * 32)] = longfilename[i];
-            if ((ROM[50002 + i + (n * 32)]) <= 20) ROM[50002 + i + (n * 32)] = 32;
+            const char c = display_name[i];
+            ROM[FILELIST_ADDR + i + n * 32] = c <= 20 ? 32 : c;
         }
-        strcpy((char *) &nomefiles[32 * n], longfilename);
+        // Also store in file_names buffer
+        memcpy(&file_names[n * 32], display_name, 32);
     }
-    ROM[51030] = da;
-    ROM[51031] = a;
-    ROM[51032] = num_dir_entries;
+
+    ROM[FILEPAGE_START] = file_start_idx;
+    ROM[FILEPAGE_START + 1] = file_end_idx;
+    ROM[FILEPAGE_START + 2] = num_dir_entries;
 }
 
 enum commands {
@@ -330,8 +359,8 @@ enum commands {
 ////////////////////////////////////////////////////////////////////////////////////
 //                     Directory Up
 ////////////////////////////////////////////////////////////////////////////////////
-static inline void DirUp() {
-    unsigned int length = strlen(current_path);
+static inline void change_directory_up() {
+    uint16_t length = strlen(current_path);
     if (length > 0) {
         while (length && current_path[--length] != '/');
         current_path[length] = 0;
@@ -341,31 +370,32 @@ static inline void DirUp() {
 ////////////////////////////////////////////////////////////////////////////////////
 //                     LOAD Game
 ////////////////////////////////////////////////////////////////////////////////////
-static inline void LoadGame() {
-    char longfilename[31];
-    const unsigned int numfile = ROM[50001] + fileda - 1;
+static inline void load_rom() {
+    const unsigned int current = ROM[PARAM_ADDR] + file_start_idx - 1;
 
-    const DIR_ENTRY *entry = (DIR_ENTRY *) &files[0];
+    const DIR_ENTRY *entries = (DIR_ENTRY *) &files[0];
 
-    strcpy(longfilename, entry[numfile].filename);
-    if (entry[numfile].isDir) {
+    if (entries[current].isDir) {
         // directory
         strcat(current_path, "/");
-        strcat(current_path, entry[numfile].filename);
-        ROM[50000] = READ_DIRECTORY; // re-read dir, path is changed
+        strcat(current_path, entries[current].filename);
+        ROM[CMD_ADDR] = READ_DIRECTORY; // re-read dir, path is changed
     } else {
         memset(path, 0, sizeof(path));
         strcat(path, current_path);
         strcat(path, "/");
-        strcat(path, longfilename);
-        for (int i = 0; i < sizeof(path); i++) ROM[50002 + i] = path[i];
-        ROM[50000] = PARENT_DIRECTORY;
+        strcat(path, entries[current].filename);
+
+        // Set path in ROM
+        strncpy((char *) &ROM[FILELIST_ADDR], path, sizeof(path));
+
+        ROM[CMD_ADDR] = PARENT_DIRECTORY;
         sleep_ms(540);
-        reset();
+        reset_sg1000();
         load_file(path); // load rom in files[]
-        reset();
+        reset_sg1000();
         memcpy(ROM, files, sizeof(ROM));
-        reset();
+        reset_sg1000();
         while (1);
     }
 }
@@ -374,39 +404,41 @@ static inline void LoadGame() {
 //                     Sega Cart Main
 ////////////////////////////////////////////////////////////////////////////////////
 
-static void SEGAMenu(const enum commands command) {
-    unsigned int maxfiles = 20;
-
-    ROM[50000] = 0;
+static void sega_menu(const enum commands command) {
+    ROM[CMD_ADDR] = 0;
     switch (command) {
-        case PARENT_DIRECTORY: DirUp();
+        case PARENT_DIRECTORY:
+            change_directory_up();
         case READ_DIRECTORY:
             read_directory(current_path);
-            fileda = 0;
-            if (maxfiles > num_dir_entries) maxfiles = num_dir_entries;
-            filea = fileda + maxfiles;
-            filelist((DIR_ENTRY *) &files[0], fileda, filea);
+
+            file_start_idx = 0;
+            file_end_idx = num_dir_entries < 20 ? num_dir_entries : 20;
+
+            update_file_list();
             break;
         case NEXT_PAGE:
-            if (filea < num_dir_entries) {
-                if (filea + maxfiles > num_dir_entries) maxfiles = num_dir_entries - filea;
-                fileda = filea;
-                filea = fileda + maxfiles;
-                filelist((DIR_ENTRY *) &files[0], fileda, filea);
+            if (file_end_idx < num_dir_entries) {
+                unsigned int maxfiles = 20;
+                if (file_end_idx + maxfiles > num_dir_entries) maxfiles = num_dir_entries - file_end_idx;
+                file_start_idx = file_end_idx;
+                file_end_idx = file_start_idx + maxfiles;
+                update_file_list();
             }
             break;
         case PREV_PAGE:
-            if (fileda >= 20) {
-                fileda = fileda - 20;
-                filea = fileda + 20;
-                filelist((DIR_ENTRY *) &files[0], fileda, filea);
+            if (file_start_idx >= 20) {
+                file_start_idx -= 20;
+                file_end_idx = file_start_idx + 20;
+
+                update_file_list();
             }
             break;
         case LOAD_GAME:
-            LoadGame();
+            load_rom();
             break;
     }
-    ROM[49999] = 1;
+    ROM[ACK_ADDR] = 1;
 }
 
 void sega_cart_main() {
@@ -425,7 +457,7 @@ void sega_cart_main() {
 
     // Initial conditions
     while (1) {
-        SEGAMenu(ROM[50000]);
+        sega_menu(ROM[CMD_ADDR]);
     }
     __unreachable();
 }

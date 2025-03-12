@@ -14,9 +14,8 @@
 //   v. 1.0 2024-03-26 : Initial version for Pi Pico
 //
 */
-#include <pico.h>
 #include <hardware/gpio.h>
-#include "tusb.h"
+#include <tusb.h>
 
 #include "sega_cart.h"
 #include "fatfs_disk.h"
@@ -25,54 +24,38 @@
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+
-static inline void cdc_task(void) {
-    // connected() check for DTR bit
-    // Most but not all terminal client set this when making connection
-    // if ( tud_cdc_connected() )
-    {
-        // connected and there are data available
-        if (tud_cdc_available()) {
-            // read data
-            char buf[64];
-            const uint32_t count = tud_cdc_read(buf, sizeof(buf));
+static void cdc_task(void) {
+    // connected and there are data available
+    if (tud_cdc_available()) {
+        // read data
+        char buf[64];
+        const uint32_t count = tud_cdc_read(buf, sizeof(buf));
 
-            // Echo back
-            // Note: Skip echo by commenting out write() and write_flush()
-            // for throughput test e.g
-            //    $ dd if=/dev/zero of=/dev/ttyACM0 count=10000
-            tud_cdc_write(buf, count);
-            tud_cdc_write_flush();
-        }
+        // Echo back
+        // Note: Skip echo by commenting out write() and write_flush()
+        // for throughput test e.g
+        //    $ dd if=/dev/zero of=/dev/ttyACM0 count=10000
+        tud_cdc_write(buf, count);
+        tud_cdc_write_flush();
     }
 }
 
-// Invoked when cdc when line state changed e.g connected/disconnected
-void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
-
-}
-
-// Invoked when CDC interface received data from host
-void tud_cdc_rx_cb(uint8_t itf) {
-}
-
-
-[[no_return]] void main(void) {
-    tusb_init();
-
-    tud_init(BOARD_TUD_RHPORT);
+void main(void) {
     gpio_init(CEROM2_PIN);
     gpio_set_dir(CEROM2_PIN, GPIO_IN);
 
-    while (1) {
-        while (to_ms_since_boot(get_absolute_time()) < 200) {
-            if (gpio_get(CEROM2_PIN))
-                sega_cart_main();
-        }
+    while (to_ms_since_boot(get_absolute_time()) < 200) {
+        if (gpio_get(CEROM2_PIN))
+            sega_cart_main();
+    }
 
-        while (1) {
-            tud_task(); // tinyusb device task
-            cdc_task();
-        }
+    tusb_init();
+
+    tud_init(BOARD_TUD_RHPORT);
+
+    while (true) {
+        tud_task(); // tinyusb device task
+        cdc_task();
     }
 
     __unreachable();
