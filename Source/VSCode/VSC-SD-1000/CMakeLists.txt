@@ -2,11 +2,11 @@ cmake_minimum_required(VERSION 3.13)
 
 # initialize the SDK based on PICO_SDK_PATH
 # note: this must happen before project()
-include(pico_sdk_import.cmake)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(SD1000_cart)
 
-set(PICO_BOARD_HEADER_DIRS ${CMAKE_SOURCE_DIR}) 
+set(PICO_BOARD_HEADER_DIRS ${CMAKE_SOURCE_DIR})
 set(PICO_BOARD myboard)
 
 # initialize the Raspberry Pi Pico SDK
@@ -16,10 +16,11 @@ add_executable(SD1000_cart)
 
 # 16megs of flash on purple pico clones
 target_compile_definitions(SD1000_cart PRIVATE
+        PICO_PANIC_FUNCTION=
     PICO_FLASH_SIZE_BYTES=16777216
 )
-
-target_compile_options(SD1000_cart PRIVATE "-Os")
+add_compile_options(-flto -fwhole-program -ffunction-sections -fdata-sections -O3)
+#target_compile_options(SD1000_cart PRIVATE "-Ofast")
 
 #pico_set_linker_script(SD1000_cart ${CMAKE_CURRENT_SOURCE_DIR}/memmap_custom.ld)
 
@@ -41,7 +42,7 @@ target_include_directories(SD1000_cart PUBLIC
 )
 
 # Enable usb output, disable uart output
-pico_enable_stdio_usb(SD1000_cart 1)
+pico_enable_stdio_usb(SD1000_cart 0)
 pico_enable_stdio_uart(SD1000_cart 0)
 
 # In addition to pico_stdlib required for common PicoSDK functionality, add dependency on tinyusb_device
@@ -53,3 +54,4 @@ target_link_libraries(SD1000_cart PUBLIC pico_stdlib hardware_flash tinyusb_devi
 pico_add_extra_outputs(SD1000_cart)
 
 
+target_link_options(${PROJECT_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections --function-sections)

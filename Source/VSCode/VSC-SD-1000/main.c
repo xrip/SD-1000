@@ -20,12 +20,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "pico/stdlib.h"
+#include "pico.h"
 #include "pico/time.h"
 #include "tusb.h"
 
 #include "sega_cart.h"
 #include "fatfs_disk.h"
+#include "hardware/gpio.h"
 
 //void cdc_task(void);
 
@@ -83,7 +84,7 @@ void tud_cdc_rx_cb(uint8_t itf)
 int main(void)
 {
    tusb_init();
-   stdio_init_all();   // for serial output, via printf()
+   // stdio_init_all();   // for serial output, via printf()
    
     tud_init(BOARD_TUD_RHPORT);
     gpio_init(CEROM2_PIN);

@@ -21,7 +21,6 @@
 #include "fatfs_disk.h"
 
 #include <stdio.h>
-#include "pico/stdlib.h"
 #include "hardware/flash.h"
 
 bool flashfs_is_mounted = false;
@@ -51,7 +50,7 @@ void create_fatfs_disk()
     BYTE work[FF_MAX_SS]; /* Work area (larger is better for processing time) */
 
     /* Format the default drive with default parameters */
-    printf("making fatfs\n");
+    // printf("making fatfs\n");
     res = f_mkfs("", 0, work, sizeof work);
     f_mount(&fs, "", 0);
     f_setlabel("SD-1000");
@@ -86,7 +85,7 @@ uint32_t fatfs_disk_write(const uint8_t* buff, uint32_t sector, uint32_t count)
         flash_fs_write_FAT_sector(sector + i, buff + (i*SECTOR_SIZE));
         // verify
         if (!flash_fs_verify_FAT_sector(sector + i, buff + (i*SECTOR_SIZE))) {
-            printf("VERIFY ERROR!");
+            // printf("VERIFY ERROR!");
             return RES_ERROR;
         }
     }

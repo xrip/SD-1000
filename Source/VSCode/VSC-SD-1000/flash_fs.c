@@ -15,7 +15,6 @@
 //
 */
 
-#include "pico/stdlib.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
 
@@ -145,7 +144,7 @@ int flash_fs_mount()
     // read the first sector, with header
     flash_read_sector(0, 0, &fs_map, 4096);
     if (memcmp(fs_map.header, MAGIC_8_BYTES, 8) != 0) {
-        printf("mountFlashFS() - magic bytes not found\n");
+        //printf("mountFlashFS() - magic bytes not found\n");
         return 1;
     }
     // read the remaining 14 sectors without headers
@@ -159,7 +158,7 @@ int flash_fs_mount()
 
 void flash_fs_create()
 {
-    printf("flash_fs_create()\n");
+    //printf("flash_fs_create()\n");
     memset(&fs_map, 0, sizeof(fs_map));
     strcpy(fs_map.header, MAGIC_8_BYTES);
     for (int i=0; i<15; i++)
