@@ -24,7 +24,7 @@
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+
-static void cdc_task(void) {
+static inline void cdc_task(void) {
     // connected and there are data available
     if (tud_cdc_available()) {
         // read data

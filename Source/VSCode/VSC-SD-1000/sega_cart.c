@@ -13,7 +13,10 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 #include "ff.h"
 #include "fatfs_disk.h"
 
+#include "flash_rom.h"
 #include "sg1000_menu_rom.h"
+#include "hardware/regs/vreg_and_chip_reset.h"
+#include "hardware/structs/vreg_and_chip_reset.h"
 
 // Pico pin usage definitions
 
@@ -439,10 +442,13 @@ static void sega_menu(const enum commands command) {
             break;
     }
     ROM[ACK_ADDR] = 1;
+    busy_wait_ms(1);
 }
 
 void sega_cart_main() {
-    set_sys_clock_khz(250000, true);
+    hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
+    sleep_us(50);
+    set_sys_clock_khz(272 * 1000, true);
 
 
     gpio_init_mask(ALL_GPIO_MASK);
