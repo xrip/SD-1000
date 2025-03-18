@@ -95,8 +95,8 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 #include "hardware/timer.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
 
-
-// static uint8_t ROM[256 << 10];
+volatile uint8_t __uninitialized_ram(rom_index);
+uint8_t * ROM;
 volatile uint8_t *rom_slot1;
 volatile uint8_t *rom_slot2;
 volatile uint8_t *rom_slot3;
@@ -107,25 +107,6 @@ void __not_in_flash_func(run)() {
         const uint32_t pins = gpio_get_all(); // re-read for SG-1000;
         const uint16_t address = pins & BUS_PIN_MASK;
         if (!(pins & MEMR_PIN_MASK)) {
-#if 0
-            if (address <= 1024) {
-                SET_DATA_MODE_OUT;
-                gpio_put_masked(DATA_PIN_MASK, ROM[address] << 16);
-                SET_DATA_MODE_IN;
-            } else if (address < 0x4000) {
-                 SET_DATA_MODE_OUT;
-                 gpio_put_masked(DATA_PIN_MASK, rom_slot1[address] << 16);
-                 SET_DATA_MODE_IN;
-             } else if (address < 0x8000) {
-                 SET_DATA_MODE_OUT;
-                 gpio_put_masked(DATA_PIN_MASK, rom_slot2[address] << 16);
-                 SET_DATA_MODE_IN;
-             } else if (address < 0xC000) {
-                 SET_DATA_MODE_OUT;
-                 gpio_put_masked(DATA_PIN_MASK, rom_slot1[address] << 16);
-                 SET_DATA_MODE_IN;
-             }
-#else
             uint8_t value;
 
             if (address <= 1024) {
@@ -142,7 +123,6 @@ void __not_in_flash_func(run)() {
             SET_DATA_MODE_OUT;
             gpio_put_masked(DATA_PIN_MASK, value << 16);
             SET_DATA_MODE_IN;
-#endif
 
         }
         else if (!(pins & MEMW_PIN_MASK)) {
@@ -163,28 +143,43 @@ void __not_in_flash_func(run)() {
         }
     }
 }
+static void reset_sg1000() {
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_OUT;
+    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_IN;
 
-//uint8_t RAM[8192];
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_OUT;
+    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_IN;
+
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_OUT;
+    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
+    while (!(gpio_get_all() & MEMR_PIN_MASK));
+    SET_DATA_MODE_IN;
+}
+
 void main() {
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
-    busy_wait_us(250);
+    busy_wait_us(33);
     set_sys_clock_khz(400 * 1000, true);
 
-
-
-
-
-    // memcpy(ROM, flash_rom, sizeof(flash_rom));
+    ROM = (uint8_t *) malloc(256 << 10);
+    memcpy(ROM, flash_roms[rom_index % 5], 256 << 10);
+    rom_index++;
 
     gpio_init_mask(ALL_GPIO_MASK);
-    // multicore_lockout_victim_init();
-
     gpio_set_dir_in_masked(ALWAYS_IN_MASK);
 
     rom_slot1 = ROM;
     rom_slot2 = ROM;
     rom_slot3 = ROM;
 
+    reset_sg1000();
     run();
 }
 

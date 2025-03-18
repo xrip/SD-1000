@@ -23,8 +23,8 @@
 
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 16777216 - 1024k
-    ROM(rx) : ORIGIN = 0x10000000+16384k-1024k, LENGTH = 1024k
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 1024k
+    ROMS(rx) : ORIGIN = 0x10000000+1024k, LENGTH = 16384k-1024k
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 262k
     SCRATCH_X(rwx) : ORIGIN = 0x20000000+262k, LENGTH = 1k
     SCRATCH_Y(rwx) : ORIGIN = 0x20000000+262k+1k, LENGTH = 1k
@@ -285,6 +285,6 @@ SECTIONS
     /* todo assert on extra code */
         .sd1000_rom : {
             *(.sd1000_rom)
-        } > ROM
+        } > ROMS
 }
 
