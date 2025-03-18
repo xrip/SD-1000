@@ -28,10 +28,10 @@
 // fine for the intended use case.
 
 #define HW_FLASH_STORAGE_BASE  (1024 * 1024)
-#define MAGIC_8_BYTES "RHE!FS30"
+#define MAGIC_8_BYTES "RHE!FS31"
 
-#define NUM_FAT_SECTORS 30716   // 15megs / 512bytes = 30720, but we used 4 records for the header (8 bytes)
-#define NUM_FLASH_SECTORS 3840  // 15megs / 4096bytes = 3840
+#define NUM_FAT_SECTORS 28672   // 15megs / 512bytes = 30720, but we used 4 records for the header (8 bytes)
+#define NUM_FLASH_SECTORS 3584  // 15megs / 4096bytes = 3840
  
 typedef struct {
     uint8_t header[8];
@@ -39,7 +39,7 @@ typedef struct {
 } sector_map;
 
 sector_map fs_map;
-bool fs_map_needs_written[15];
+bool fs_map_needs_written[14];
 
 uint8_t used_bitmap[NUM_FLASH_SECTORS];    // we will use 256 flash sectors for 2048 fat sectors
 

@@ -40,7 +40,7 @@ static inline void cdc_task(void) {
     }
 }
 
-void main(void) {
+void main1(void) {
     gpio_init(CEROM2_PIN);
     gpio_set_dir(CEROM2_PIN, GPIO_IN);
 
