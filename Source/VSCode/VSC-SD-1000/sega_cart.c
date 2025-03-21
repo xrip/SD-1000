@@ -85,8 +85,7 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 
 #define SET_DATA_MODE_OUT   gpio_set_dir_out_masked(DATA_PIN_MASK)
 #define SET_DATA_MODE_IN    gpio_set_dir_in_masked(DATA_PIN_MASK)
-// We're going to erase and reprogram a region 256k from the start of flash.
-// Once done, we can access this at XIP_BASE + 256k.
+
 
 #include <stdlib.h>
 #include <string.h>
@@ -145,6 +144,7 @@ void __not_in_flash_func(run)() {
             // ROM[address] = (gpio_get_all() & DATA_PIN_MASK) >> 16;
             const uint8_t page = value & 0x1f; // todo check rom size
             switch (address) {
+                // Rom select from our menu
                 case 0xFFF:
                     rom_index = value;
                     memcpy(ROM, flash_roms[value], 256 << 10);
@@ -154,10 +154,10 @@ void __not_in_flash_func(run)() {
                     rom_slot1 = ROM + page * 0x4000;
                 break;
                 case 0xFFFE:
-                    rom_slot2 = (ROM + page * 0x4000) - 0x4000;
+                    rom_slot2 = ROM + page * 0x4000 - 0x4000;
                 break;
                 case 0xFFFF:
-                    rom_slot3 = (ROM + page * 0x4000) - 0x8000;
+                    rom_slot3 = ROM + page * 0x4000 - 0x8000;
                 break;
             }
         }
