@@ -91,6 +91,7 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 #include <stdlib.h>
 #include <string.h>
 
+#include "menu_rom.h"
 #include "flash_rom.h"
 #include "hardware/timer.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
@@ -100,6 +101,20 @@ uint8_t * ROM;
 volatile uint8_t *rom_slot1;
 volatile uint8_t *rom_slot2;
 volatile uint8_t *rom_slot3;
+
+static void reset_sega() {
+    rom_slot1 = ROM;
+    rom_slot2 = ROM;
+    rom_slot3 = ROM;
+
+    for (int i = 0; i < 5; i++) {
+        while (!(gpio_get_all() & MEMR_PIN_MASK));
+        SET_DATA_MODE_OUT;
+        gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
+        while (!(gpio_get_all() & MEMR_PIN_MASK));
+        SET_DATA_MODE_IN;
+    }
+}
 
 void __not_in_flash_func(run)() {
     while (1) {
@@ -130,6 +145,11 @@ void __not_in_flash_func(run)() {
             // ROM[address] = (gpio_get_all() & DATA_PIN_MASK) >> 16;
             const uint8_t page = value & 0x1f; // todo check rom size
             switch (address) {
+                case 0xFFF:
+                    rom_index = value;
+                    memcpy(ROM, flash_roms[value], 256 << 10);
+                    reset_sega();
+                    break;
                 case 0xFFFD:
                     rom_slot1 = ROM + page * 0x4000;
                 break;
@@ -143,25 +163,7 @@ void __not_in_flash_func(run)() {
         }
     }
 }
-static void reset_sg1000() {
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_OUT;
-    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_IN;
 
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_OUT;
-    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_IN;
-
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_OUT;
-    gpio_put_masked(DATA_PIN_MASK, 0xc7 << 16);
-    while (!(gpio_get_all() & MEMR_PIN_MASK));
-    SET_DATA_MODE_IN;
-}
 
 void main() {
     hw_set_bits(&vreg_and_chip_reset_hw->vreg, VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
@@ -169,17 +171,14 @@ void main() {
     set_sys_clock_khz(400 * 1000, true);
 
     ROM = (uint8_t *) malloc(256 << 10);
-    memcpy(ROM, flash_roms[rom_index % 5], 256 << 10);
-    rom_index++;
+    memcpy(ROM, menu_rom, 32 << 10);
+
+
 
     gpio_init_mask(ALL_GPIO_MASK);
     gpio_set_dir_in_masked(ALWAYS_IN_MASK);
 
-    rom_slot1 = ROM;
-    rom_slot2 = ROM;
-    rom_slot3 = ROM;
-
-    reset_sg1000();
+    reset_sega();
     run();
 }
 
