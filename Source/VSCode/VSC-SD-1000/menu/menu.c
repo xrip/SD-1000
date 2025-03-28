@@ -21,8 +21,9 @@ volatile unsigned char __at(0xfff) selected;  // Write ROM index here to launch 
 // 0xfff -- selected game index, write here to launch
 // 0x1000 -- total menu items
 // 0x1001 -- 31byte for each menu item with \0
-const unsigned char menu_item_num = ROM_NUMBER;
-const char *menu_items[ROM_NUMBER] = {
+const __at(0x4000) unsigned char menu_item_num = ROM_NUMBER;
+const __at(0x4001) unsigned char menu_items[16384] = { 0 };
+/*const char *menu_items[ROM_NUMBER] = {
 	"Double Dragon",
 	"Sonic",
 	"Terminator 2",
@@ -41,7 +42,7 @@ const char *menu_items[ROM_NUMBER] = {
 	"12345678901234567890123456 16",
 	"12345678901234567890123456 17",
 	"12345678901234567890123456 18"
-};
+};*/
 
 const unsigned char sprite_pointer[16] = {
 	0b00001000, //     *
@@ -88,7 +89,7 @@ static void setup() {
 
 
 	for (int i =0; i < menu_item_num; i++) {
-		SG_printatXY(2, 4 + i, menu_items[i]);
+		SG_printatXY(2, 4 + i, &menu_items[i*31]);
 	}
 
 	draw_pointer(0);

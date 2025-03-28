@@ -15,11 +15,16 @@ pico_sdk_init()
 
 add_executable(${PROJECT_NAME})
 
+# Build roms
+add_custom_target(rom_list COMMAND python make.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/roms
+)
+
 # Build menu rom first
 add_custom_target(menu_rom COMMAND make clean && make && python bin2c.py menu.sg ../menu_rom.h
         WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/menu
 )
-add_dependencies(${PROJECT_NAME} menu_rom)
+add_dependencies(${PROJECT_NAME} rom_list menu_rom)
 
 pico_define_boot_stage2(slower_boot ${PICO_DEFAULT_BOOT_STAGE2_FILE})
 target_compile_definitions(slower_boot PRIVATE PICO_FLASH_SPI_CLKDIV=4)

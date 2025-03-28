@@ -1,9 +1,3 @@
-/*
-SD-1000 MultiCART by Andrea Ottaviani 2024
-SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
-*/
-
-
 #include <hardware/gpio.h>
 #include <hardware/clocks.h>
 
@@ -91,7 +85,7 @@ SEGA SC-3000 - SG-1000  multicart based on Raspberry Pico board
 #include <string.h>
 
 #include "menu_rom.h"
-#include "flash_rom.h"
+#include "roms/roms.h"
 #include "hardware/timer.h"
 #include "hardware/structs/vreg_and_chip_reset.h"
 
@@ -147,7 +141,7 @@ void __not_in_flash_func(run)() {
                 // Rom select from our menu
                 case 0xFFF:
                     rom_index = value;
-                    memcpy(ROM, flash_roms[value], 256 << 10);
+                    memcpy(ROM, roms[value].data, roms[value].size);
                     reset_sega();
                     break;
                 case 0xFFFD:
@@ -173,7 +167,20 @@ void main() {
     ROM = (uint8_t *) malloc(256 << 10);
     memcpy(ROM, menu_rom, 16 << 10);
 
+    // recalc menu_rom checksum
+    unsigned int checksum = 0;
+    for (int i = 0; i<0x3ff0; i ++ ) {
+        checksum += menu_rom[i];
+    }
+    ROM[0x3ff0+10] = checksum & 0x00FF;
+    ROM[0x3ff0+11] = checksum >> 8;
 
+    // Update game list in menu_rom
+    #define ROM_NAME_LENGTH 31
+    ROM[0x4000] = rom_count;
+    for (int i = 0; i< rom_count; i++) {
+        memcpy(&ROM[0x4001 + i * ROM_NAME_LENGTH], roms[i].name, ROM_NAME_LENGTH);
+    }
 
     gpio_init_mask(ALL_GPIO_MASK);
     gpio_set_dir_in_masked(ALWAYS_IN_MASK);
