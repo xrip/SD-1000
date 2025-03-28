@@ -1,21 +1,20 @@
 CC=sdcc
 IHX2SMS=ihx2sms
-DEVKITSMS_BASE=E:/devkitSMS-master/
-SMSLIB_BASE=$(DEVKITSMS_BASE)/SMSlib
+DEVKITSMS_BASE=E:/devkitSMS-master
+SMSLIB_BASE=$(DEVKITSMS_BASE)/SGlib
 SMSLIB_INCDIR=$(SMSLIB_BASE)/src
-PEEP_RULES=$(SMSLIB_BASE)/src/peep-rules.txt
-CRT0=$(DEVKITSMS_BASE)/crt0/crt0_sms.rel
-#SMSLIB_LIB=$(SMSLIB_BASE)/SMSlib.lib          # Use distributed lib
-SMSLIB_LIB=$(SMSLIB_BASE)/src/SMSlib.lib      # Use locally compiled lib
+CRT0=$(DEVKITSMS_BASE)/crt0/crt0_sg.rel
+#SGLIB_LIB=$(SMSLIB_BASE)/SMSlib.lib          # Use distributed lib
+SGLIB_LIB=$(SMSLIB_BASE)/src/SGlib.rel      # Use locally compiled lib
 
-CFLAGS=-mz80 -I$(SMSLIB_INCDIR) --peep-file $(PEEP_RULES)
+CFLAGS=-mz80 -I$(SMSLIB_INCDIR)
 LDFLAGS=-mz80 --no-std-crt0 --data-loc 0xC000
 
 PROGNAME=menu
 
-OBJS=main.rel
+OBJS=$(PROGNAME).rel
 
-all: $(PROGNAME).sms
+all: $(PROGNAME).sg
 
 %.rel: %.c
 	$(CC) $(CFLAGS) -c $<
@@ -24,9 +23,9 @@ all: $(PROGNAME).sms
 	$(CC) $(CFLAGS) -c $<
 
 $(PROGNAME).ihx: $(OBJS)
-	$(CC) -o $@ $(LDFLAGS) $(CRT0) $(SMSLIB_LIB) $^
+	$(CC) -o $@ $(LDFLAGS) $(CRT0) $(SGLIB_LIB) $^
 
-$(PROGNAME).sms: $(PROGNAME).ihx
+$(PROGNAME).sg: $(PROGNAME).ihx
 	$(IHX2SMS) $< $@
 
 clean:

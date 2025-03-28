@@ -171,7 +171,7 @@ void main() {
     set_sys_clock_khz(400 * 1000, true);
 
     ROM = (uint8_t *) malloc(256 << 10);
-    memcpy(ROM, menu_rom, 32 << 10);
+    memcpy(ROM, menu_rom, 16 << 10);
 
 
 
