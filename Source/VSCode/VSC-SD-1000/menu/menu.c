@@ -15,41 +15,56 @@
 
 volatile unsigned char __at(0xfff) selected; // Write ROM index here to launch it from RP2040
 
-#define ROM_NUMBER 18
+#define ITEMS_PER_PAGE 18
+#define ROM_NUMBER 18*2
 #define ROM_NAME_LENGTH 31
 // ROM-stored Menu data:
 // 0xfff -- selected game index, write here to launch
-// 0x1000 -- total menu items
-// 0x1001 -- 31byte for each menu item with \0
-const __at (
-0x4000
-)
-unsigned char menu_item_num = ROM_NUMBER;
-const __at (
-0x4001
-)
-unsigned char menu_items[16384] = {0};
-/*const char *menu_items[ROM_NUMBER] = {
-	"Double Dragon",
-	"Sonic",
-	"Terminator 2",
-	"Alien 3",
-	"Bram Stroker's Dracula",
-	"Hang On SG-1000",
-	"123456789012345678901234567 7",
-	"123456789012345678901234567 8",
-	"123456789012345678901234567 9",
-	"123456789012345678901234567 0",
-	"12345678901234567890123456 11",
-	"12345678901234567890123456 12",
-	"12345678901234567890123456 13",
-	"12345678901234567890123456 14",
-	"12345678901234567890123456 15",
-	"12345678901234567890123456 16",
-	"12345678901234567890123456 17",
-	"12345678901234567890123456 18"
-};*/
-
+// 0x4000 -- total menu items
+// 0x4001 -- 31byte for each menu item with \0
+const __at(0x4000) unsigned char menu_item_num = ROM_NUMBER;
+#if 1
+const __at(0x4001) unsigned char menu_items[16384] = { 0 };
+#else
+const char menu_items[] = {
+    "1213456789012345678901234567 1\0"
+    "1213456789012345678901234567 2\0"
+    "1213456789012345678901234567 3\0"
+    "1213456789012345678901234567 4\0"
+    "1213456789012345678901234567 5\0"
+    "1213456789012345678901234567 6\0"
+    "1213456789012345678901234567 7\0"
+    "1213456789012345678901234567 8\0"
+    "1213456789012345678901234567 9\0"
+    "121345678901234567890123456 10\0"
+    "121345678901234567890123456 11\0"
+    "121345678901234567890123456 12\0"
+    "121345678901234567890123456 13\0"
+    "121345678901234567890123456 14\0"
+    "121345678901234567890123456 15\0"
+    "121345678901234567890123456 16\0"
+    "121345678901234567890123456 17\0"
+    "121345678901234567890123456 18\0"
+    "! 13456789012345678901234567 1\0"
+    "! 13456789012345678901234567 2\0"
+    "! 13456789012345678901234567 3\0"
+    "! 13456789012345678901234567 4\0"
+    "! 13456789012345678901234567 5\0"
+    "! 13456789012345678901234567 6\0"
+    "! 13456789012345678901234567 7\0"
+    "! 13456789012345678901234567 8\0"
+    "! 13456789012345678901234567 9\0"
+    "! 1345678901234567890123456 10\0"
+    "! 1345678901234567890123456 11\0"
+    "! 1345678901234567890123456 12\0"
+    "! 1345678901234567890123456 13\0"
+    "! 1345678901234567890123456 14\0"
+    "! 1345678901234567890123456 15\0"
+    "! 1345678901234567890123456 16\0"
+    "! 1345678901234567890123456 17\0"
+    "! 1345678901234567890123456 18\0",
+};
+#endif
 const unsigned char sprite_pointer[16] = {
     0b00001000, //     *
     0b00001100, //     **
@@ -76,8 +91,20 @@ static void draw_pointer(unsigned char y) {
     SG_copySpritestoSAT();
 }
 
+void draw_page(unsigned char page) {
+    // clear items from 5 row
+    SG_VRAMmemset(0x1800 + (4 << 5), 0, 32 * ITEMS_PER_PAGE);
 
-static void setup() {
+    unsigned char start = page * ITEMS_PER_PAGE;
+    unsigned char end = (page + 1) * ITEMS_PER_PAGE;
+    if (end > menu_item_num) end = menu_item_num;
+
+    for (unsigned char i = start; i < end; i++) {
+        SG_printatXY(2, 4 + (i - start), &menu_items[i * ROM_NAME_LENGTH]);
+    }
+}
+
+static void setup(void) {
     SG_VRAMmemsetW(0, 0x0000, 8192);
     SG_setBackdropColor(SG_COLOR_BLACK);
 
@@ -88,16 +115,15 @@ static void setup() {
     SG_loadTilePatterns(devkitSMS_font__tiles__1bpp, 32 + 0x200, sizeof(devkitSMS_font__tiles__1bpp));
 
     // SG_loadTileColours but not uses rom
+    // sega logo
     SG_VRAMmemset(0x2000, SG_COLOR_LIGHT_BLUE << 4, 224);
+    /// rest of screen
     SG_VRAMmemset(0x2000 + 224, 0xF1, (1920 * 3) - 224);
 
     SG_loadSpritePatterns(sprite_pointer, 0, 8);
 
 
-    for (int i = 0; i < menu_item_num; i++) {
-        SG_printatXY(2, 4 + i, &menu_items[i*31]);
-    }
-
+    draw_page(0);
     draw_pointer(0);
 
     // Draw SEGA logo
@@ -122,7 +148,7 @@ void main(void) {
 
     unsigned int keys, previous_keys = 0;
     unsigned int selected_menu_item = 0;
-
+    unsigned char current_page = 0;
 
     while (1) {
         keys = SG_getKeysStatus();
@@ -143,8 +169,24 @@ void main(void) {
             draw_pointer(selected_menu_item);
         }
 
+        // Right button pressed to go to the next page
+        if (keys & PORT_A_KEY_RIGHT && !(previous_keys & PORT_A_KEY_RIGHT)) {
+            if ((current_page + 1) * ITEMS_PER_PAGE < menu_item_num) {
+                current_page++;
+            }
+            draw_page(current_page);
+        }
+
+        // Left button pressed to go to the previous page
+        if (keys & PORT_A_KEY_LEFT && !(previous_keys & PORT_A_KEY_LEFT)) {
+            if (current_page > 0) {
+                current_page--;
+            }
+            draw_page(current_page);
+        }
+
         if ((keys & PORT_A_KEY_START) && !(previous_keys & PORT_A_KEY_START)) {
-            selected = selected_menu_item;
+            selected = current_page * ITEMS_PER_PAGE + selected_menu_item;
         }
         previous_keys = keys;
 
