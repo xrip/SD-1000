@@ -4,11 +4,13 @@ import glob
 HEADER_FILE = "roms.h"
 FILENAME_LENGTH = 30  # Fixed length for filename in RomEntry
 
+
 def format_filename(filename):
     """Trims or pads the filename to exactly 31 characters."""
     if len(filename) > FILENAME_LENGTH:
         return filename[:FILENAME_LENGTH]  # Trim if too long
     return filename.ljust(FILENAME_LENGTH)  # Pad with spaces if too short
+
 
 def process_files():
     files = sorted(glob.glob("*.sg") + glob.glob("*.sms"))
@@ -24,7 +26,7 @@ def process_files():
 
             with open(file, "rb") as f:
                 data = f.read()
-            
+
             # Generate C array
             c_array = ", ".join(f"0x{byte:02X}" for byte in data)
             rom_entries.append(f"{{ {len(data)}, \"{formatted_name}\\0\", {var_name} }}")
@@ -36,8 +38,9 @@ def process_files():
         header.write(f"typedef struct {{ int size; char name[{FILENAME_LENGTH + 1}]; const unsigned char *data; }} RomEntry;\n\n")
         header.write(f"RomEntry roms[] = {{\n    {',\n    '.join(rom_entries)}\n}};\n")
         header.write(f"const int rom_count = {len(files)};\n\n")
-        
+
         header.write("#endif // ROMS_H\n")
+
 
 if __name__ == "__main__":
     process_files()
